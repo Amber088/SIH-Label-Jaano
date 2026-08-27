@@ -1,0 +1,20 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    avoid_print: false # the app logs API errors to the console during a demo
+
+analyzer:
+  errors:
+    # Keep the analyzer strict but let a demo build proceed on style nits.
+    prefer_const_constructors: warning
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - web/**
+    - windows/**
+    - macos/**
+    - linux/**

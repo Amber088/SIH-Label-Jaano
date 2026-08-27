@@ -1,0 +1,301 @@
+{
+  "image_width": 900,
+  "image_height": 1300,
+  "ocr_words": [
+    {
+      "text": "Brand",
+      "bbox": [
+        70,
+        104,
+        157,
+        44
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Foods",
+      "bbox": [
+        240,
+        104,
+        164,
+        44
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "GLUCOSE",
+      "bbox": [
+        70,
+        270,
+        359,
+        57
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "BISCUITS",
+      "bbox": [
+        446,
+        270,
+        339,
+        57
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Rich",
+      "bbox": [
+        70,
+        439,
+        79,
+        31
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "in",
+      "bbox": [
+        158,
+        440,
+        33,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Energy",
+      "bbox": [
+        200,
+        441,
+        129,
+        37
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Net",
+      "bbox": [
+        70,
+        739,
+        100,
+        45
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Qty",
+      "bbox": [
+        184,
+        737,
+        100,
+        60
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "500",
+      "bbox": [
+        298,
+        737,
+        111,
+        47
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "g",
+      "bbox": [
+        423,
+        748,
+        40,
+        49
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "MRP",
+      "bbox": [
+        70,
+        916,
+        118,
+        39
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Rs",
+      "bbox": [
+        200,
+        916,
+        62,
+        40
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "45",
+      "bbox": [
+        274,
+        916,
+        64,
+        40
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "(inclusive",
+      "bbox": [
+        70,
+        986,
+        128,
+        26
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "of",
+      "bbox": [
+        204,
+        988,
+        28,
+        22
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "all",
+      "bbox": [
+        238,
+        989,
+        30,
+        21
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "taxes)",
+      "bbox": [
+        274,
+        986,
+        80,
+        26
+      ],
+      "confidence": 0.98
+    }
+  ],
+  "extraction": {
+    "category": "packaged_food",
+    "fields": {
+      "manufacturer_details": {
+        "value": "Brand Foods Pvt Ltd, Plot 5, MIDC, Pune, Maharashtra 411001",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.95
+      },
+      "generic_name": {
+        "value": "Glucose Biscuits",
+        "panel": "front",
+        "source_image": 0,
+        "confidence": 0.97
+      },
+      "net_quantity": {
+        "value": "Net Qty 500 g",
+        "panel": "front",
+        "source_image": 0,
+        "confidence": 0.96
+      },
+      "manufacture_date": {
+        "value": "MFG 03/2026",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.9
+      },
+      "mrp": {
+        "value": "MRP Rs 45 inclusive of all taxes",
+        "panel": "front",
+        "source_image": 0,
+        "confidence": 0.95
+      },
+      "consumer_care": {
+        "value": "Consumer Care: care@brand.com, 1800-123-4567",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.9
+      },
+      "ingredients_list": {
+        "value": "Wheat Flour, Sugar, Edible Vegetable Oil, Milk Solids, Salt",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.92
+      },
+      "nutritional_info": {
+        "value": "Energy 450 kcal, Protein 7 g per 100 g",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.9
+      },
+      "fssai_license": {
+        "value": "FSSAI Lic No 10012345678901",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.95
+      },
+      "date_marking": {
+        "value": "Best before 9 months from manufacture. Use by 12/2026",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.9
+      },
+      "lot_batch_number": {
+        "value": "Batch No L2026-045",
+        "panel": "back",
+        "source_image": 1,
+        "confidence": 0.9
+      }
+    },
+    "symbols_detected": [
+      "veg_nonveg_mark",
+      "fssai_logo"
+    ],
+    "context": {
+      "is_imported": false,
+      "is_single_ingredient": false,
+      "has_additives": false,
+      "has_allergens": false,
+      "dimension_relevant": false
+    },
+    "raw_text": "Brand Foods GLUCOSE BISCUITS Rich in Energy Net Qty 500 g MRP Rs 45 inclusive of all taxes",
+    "model": "mock"
+  },
+  "_calibration_hint": {
+    "note": "front panel: use either the manual scale or the drawn card bbox",
+    "reference_manual": {
+      "type": "manual",
+      "mm_per_px": 0.0531,
+      "pdp_bbox": [
+        40,
+        40,
+        820,
+        1220
+      ]
+    },
+    "reference_card": {
+      "type": "card",
+      "width_mm": 85.6,
+      "bbox": [
+        560,
+        1090,
+        300,
+        190
+      ],
+      "pdp_bbox": [
+        40,
+        40,
+        820,
+        1220
+      ]
+    },
+    "expected_netqty_mm": 2.6,
+    "expected_pdp_area_cm2": 28.2
+  }
+}

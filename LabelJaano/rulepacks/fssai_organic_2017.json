@@ -1,0 +1,55 @@
+{
+  "pack_id": "fssai_organic_2017",
+  "label": "FSS (Organic Foods) Regulations, 2017",
+  "authority": "Food Safety and Standards Authority of India (FSSAI)",
+  "scope": "category",
+  "applies_when": { "category_in": ["packaged_food", "food", "beverage"] },
+  "stacks_on": ["legal_metrology_2011", "fssai_food_2020"],
+  "version": "2017",
+  "source_note": "Applies only when the product is presented as organic (is_organic). Reg 5(1) makes organic-status information mandatory and the FSSAI (Jaivik Bharat) organic logo the baseline mark; a NPOP/PGS-India certification mark 'may' additionally be carried, so it is modelled as advisory (minor, optional). Whether the product is genuinely certified under NPOP/PGS-India cannot be verified from a photo — see the reference standard.",
+  "declarations": [
+    {
+      "id": "organic_status_info",
+      "label": "Organic-status information",
+      "legal_reference": "Reg 5(1)",
+      "condition": "is_organic",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(certified\\s+organic|jaivik\\s+bharat|\\bnpop\\b|pgs[\\-\\s]?india|organic\\s+certif)", "message": "An organic food must convey full and accurate organic-status information, e.g. the certification system (NPOP / PGS-India / Jaivik Bharat) or 'certified organic'." }
+      ]
+    },
+    {
+      "id": "fssai_organic_logo",
+      "label": "FSSAI organic (Jaivik Bharat) logo",
+      "legal_reference": "Reg 5(1)",
+      "condition": "is_organic",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "symbol", "symbol": "fssai_organic_logo", "message": "An organic food should display the FSSAI organic (Jaivik Bharat) logo." }
+      ]
+    },
+    {
+      "id": "organic_certification_mark",
+      "label": "NPOP / PGS-India certification mark",
+      "legal_reference": "Reg 5(1) (optional — 'may carry')",
+      "condition": "is_organic",
+      "required": false,
+      "severity": "minor",
+      "checks": [
+        { "type": "symbol", "symbol": "pgs_india_mark", "message": "The product may additionally carry a NPOP or PGS-India certification / quality-assurance mark." }
+      ]
+    }
+  ],
+  "reference_standards": [
+    {
+      "id": "organic_system_compliance",
+      "label": "NPOP / PGS-India system compliance",
+      "legal_reference": "Reg 4(1)",
+      "authority": "FSSAI",
+      "note": "Organic food must actually comply with all provisions of NPOP or PGS-India (production, traceability to producer level, valid certification / transaction certificate). This is a supply-chain fact that cannot be verified from the label image — confirm the certificate with the accredited certification body.",
+      "condition": "is_organic"
+    }
+  ]
+}

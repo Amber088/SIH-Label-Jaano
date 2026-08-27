@@ -1,0 +1,29 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs & temp
+*.log
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+# Secrets — never commit keys
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Flutter / Node build output
+build/
+.dart_tool/
+node_modules/
+dist/

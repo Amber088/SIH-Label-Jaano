@@ -1,0 +1,55 @@
+{
+  "pack_id": "fssai_fortification_2018",
+  "label": "FSS (Fortification of Foods) Regulations, 2018",
+  "authority": "Food Safety and Standards Authority of India (FSSAI)",
+  "scope": "category",
+  "applies_when": { "category_in": ["packaged_food", "food", "beverage"] },
+  "stacks_on": ["legal_metrology_2011", "fssai_food_2020"],
+  "version": "2018",
+  "source_note": "Applies only when the label claims fortification (is_fortified) — the pipeline sets this flag on detecting a '+F' logo or 'fortified with' wording. Fortificant identity and levels (Schedule I) cannot be verified from a photo and are surfaced as a reference standard only.",
+  "declarations": [
+    {
+      "id": "fortified_with_declaration",
+      "label": "'Fortified with' declaration",
+      "legal_reference": "Reg 7(2)",
+      "condition": "is_fortified",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)fortified\\s+with", "message": "A fortified food must carry the words 'fortified with (name of the fortificant)'." }
+      ]
+    },
+    {
+      "id": "fortification_logo",
+      "label": "'+F' fortification logo",
+      "legal_reference": "Reg 7(2) & Schedule II",
+      "condition": "is_fortified",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "symbol", "symbol": "fortification_plus_f_logo", "message": "A fortified food must display the '+F' fortification logo (Schedule II)." }
+      ]
+    },
+    {
+      "id": "iron_thalassemia_statement",
+      "label": "Iron-fortification thalassemia advisory",
+      "legal_reference": "Reg 7(4)",
+      "condition": "is_iron_fortified",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)people\\s+with\\s+thalassemia\\s+may\\s+take\\s+under\\s+medical\\s+supervision", "message": "An iron-fortified food must state 'People with Thalassemia may take under medical supervision'." }
+      ]
+    }
+  ],
+  "reference_standards": [
+    {
+      "id": "fortification_levels_schedule_i",
+      "label": "Micronutrient fortification levels (Schedule I)",
+      "legal_reference": "Reg 4 & Schedule I",
+      "authority": "FSSAI",
+      "note": "The type and quantity of micronutrients added to fortified staples (wheat flour, rice, salt, edible oil, milk) must fall within the ranges in Schedule I. Actual fortificant levels cannot be verified from a label photo — confirm by laboratory assay.",
+      "condition": "is_fortified"
+    }
+  ]
+}

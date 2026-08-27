@@ -1,0 +1,53 @@
+{
+  "pack_id": "fssai_contaminants_2011",
+  "label": "FSS (Contaminants, Toxins and Residues) Regulations, 2011 — reference standards",
+  "authority": "Food Safety and Standards Authority of India (FSSAI)",
+  "scope": "category",
+  "applies_when": { "category_in": ["packaged_food", "food", "beverage", "packaged_water", "nutraceutical", "health_supplement", "food_special_dietary", "food_special_medical"] },
+  "stacks_on": ["legal_metrology_2011", "fssai_food_2020"],
+  "version": "2011",
+  "source_note": "This is a Tier-2, reference-only pack: it carries NO scored declarations. The Contaminants, Toxins and Residues Regulations set maximum permitted levels of harmful substances IN the food (metals, mould toxins, pesticide and veterinary-drug residues, naturally occurring toxins). None of these limits can be verified from a label photograph — they require laboratory analysis of the product. The pack exists so that an inspection report for any food product surfaces these applicable safety limits and explicitly flags them as 'verify by lab assay', keeping the compliance score honest (a photo scanner cannot and does not judge them).",
+  "declarations": [],
+  "reference_standards": [
+    {
+      "id": "contaminants_metal_limits",
+      "label": "Metal-contaminant maximum limits",
+      "legal_reference": "Reg 2.1 (Metal Contaminants)",
+      "authority": "FSSAI",
+      "note": "Maximum permitted levels for lead, copper, arsenic, tin, zinc, cadmium, mercury, methyl mercury, chromium and nickel, specified per food type (e.g. tin ≤ 250 mg/kg in processed/canned products). Verifiable only by laboratory assay of the product, not from the label.",
+      "condition": "always"
+    },
+    {
+      "id": "contaminants_mycotoxins",
+      "label": "Mycotoxin & crop-contaminant limits",
+      "legal_reference": "Reg 2.2.1 (Crop Contaminants)",
+      "authority": "FSSAI",
+      "note": "Maximum limits for mould toxins — e.g. total aflatoxin ≤ 30 µg/kg in all articles of food, aflatoxin M1 ≤ 0.5 µg/kg in milk, plus patulin and ochratoxin-A limits. A laboratory test, not a photo, is required to confirm compliance.",
+      "condition": "always"
+    },
+    {
+      "id": "contaminants_natural_toxins",
+      "label": "Naturally occurring toxic-substance limits",
+      "legal_reference": "Reg 2.2.2 (Naturally Occurring Toxic Substances)",
+      "authority": "FSSAI",
+      "note": "Limits on naturally occurring toxicants such as agaric acid, hydrocyanic acid, hypericine and saffrole in specified foods. Compositional limits verifiable only by laboratory analysis.",
+      "condition": "always"
+    },
+    {
+      "id": "contaminants_pesticide_residues",
+      "label": "Insecticide / pesticide residue tolerance limits",
+      "legal_reference": "Reg 2.3.1 (Restriction on the use of insecticides)",
+      "authority": "FSSAI",
+      "note": "Tolerance limits for insecticide/pesticide residues are set per pesticide and per food commodity. Residue levels cannot be seen on a label — they must be established by laboratory residue analysis.",
+      "condition": "always"
+    },
+    {
+      "id": "contaminants_antibiotic_residues",
+      "label": "Antibiotic & pharmacologically-active-substance residue limits",
+      "legal_reference": "Reg 2.3.2 (Antibiotic and other Pharmacologically Active Substances)",
+      "authority": "FSSAI",
+      "note": "Tolerance limits for antibiotic and other veterinary-drug residues (e.g. in seafood, meat, milk); several substances are altogether prohibited. Verifiable only by laboratory assay of the product.",
+      "condition": "always"
+    }
+  ]
+}

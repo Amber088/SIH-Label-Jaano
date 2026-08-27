@@ -1,0 +1,34 @@
+# The rule ENGINE itself has ZERO runtime dependencies — it is pure Python stdlib,
+# so `python3 run_scan.py ...` and `python3 tests/test_engine.py` work with no install.
+
+# --- HTTP API (app/main.py) -------------------------------------------------
+# Needed to serve the engine over REST (`uvicorn app.main:app --reload`).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9   # required for file uploads on POST /extract, /scan/image
+
+# --- Dev / test -------------------------------------------------------------
+pytest>=8.0
+httpx>=0.27          # required by fastapi.testclient.TestClient (tests/test_api.py)
+
+# --- Extraction pipeline (pipeline/, extract.py, POST /extract & /scan/image) ---
+# Heavy + optional. The pipeline runs WITHOUT these in mock mode (mock=True or
+# LABEL_JAANO_MOCK=1); install them for real photo -> scan-input extraction.
+# On Apple Silicon, install paddlepaddle first (see README for the wheel index).
+google-generativeai>=0.7   # Gemini 2.0 Flash structured field extraction
+paddleocr>=2.7             # word-level OCR bounding boxes (for Rule 8 font-height)
+paddlepaddle>=2.6          # PaddleOCR's inference backend
+opencv-python>=4.9         # ArUco reference-marker calibration (calibration.py)
+pillow>=10.0               # image decoding for Gemini + OCR
+numpy>=1.26                # array plumbing for OCR / OpenCV
+
+# --- Planned for later stages (not needed yet) ------------------------------
+# sqlalchemy>=2.0
+# alembic>=1.13
+# psycopg[binary]>=3.1
+# celery>=5.3
+# redis>=5.0
+# python-jose[cryptography]>=3.3   # JWT
+# weasyprint>=61                   # PDF reports
+# python-docx>=1.1                 # editable DOCX reports

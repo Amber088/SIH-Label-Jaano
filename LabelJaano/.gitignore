@@ -1,0 +1,40 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments (never commit these — they're huge and machine-specific,
+# and letting a file-watcher scan them causes uvicorn --reload loops)
+.venv/
+venv/
+env/
+ENV/
+
+# --- Secrets / config (keep gov API keys, DB URLs, Gemini keys out of git) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Node / frontend (for the React dashboard when it lands) ---
+node_modules/
+dist/
+build/
+.vite/
+*.local
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Project artifacts ---
+*.log
+uploads/
+tmp/

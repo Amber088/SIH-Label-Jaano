@@ -1,0 +1,47 @@
+name: label_jaano
+description: >-
+  Label Jaano — a field-officer companion for the Legal Metrology (Packaged
+  Commodities) Rules, 2011. Scan a package, get a defensible verdict in seconds,
+  every violation citing its exact rule.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  # Floor is set by the Material 3 theming APIs this app uses —
+  # WidgetStateProperty / WidgetState and the CardThemeData form of
+  # ThemeData.cardTheme both landed in Flutter 3.22 (Dart 3.4). 3.24 is the
+  # safe, widely-installed baseline; any newer Flutter works too.
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Networking — talks to the FastAPI backend (multipart photo upload).
+  http: ^1.2.1
+
+  # Camera + gallery capture of the front/back label panels.
+  image_picker: ^1.1.2
+
+  # Charts on the dashboard (verdict mix, severity breakdown).
+  fl_chart: ^0.68.0
+
+  # Simple, dependable state management for the in-session scan store.
+  provider: ^6.1.2
+
+  # The instrument-panel typography (fetched + cached at first run).
+  google_fonts: ^6.2.1
+
+  # Date / number formatting for the officer queue and readouts.
+  intl: ^0.19.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

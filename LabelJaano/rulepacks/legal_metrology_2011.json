@@ -1,0 +1,157 @@
+{
+  "pack_id": "legal_metrology_2011",
+  "label": "Legal Metrology (Packaged Commodities) Rules, 2011",
+  "authority": "Department of Consumer Affairs — Legal Metrology Division",
+  "scope": "base",
+  "applies_when": { "always": true },
+  "version": "2011.r2022.v2",
+  "effective_date": "2022-01-01",
+  "source_note": "Clause citations, the Rule 7(2) Table-I font-height values and the MRP 'inclusive of all taxes' wording are taken verbatim from the 2011 Rules as amended (notably G.S.R. 629(E), 23.6.2017). Regexes are engineered detectors for those provisions. Verify against the current gazette (indiacode.nic.in, consumeraffairs.nic.in) before a live deployment.",
+  "language_requirement": ["hi", "en"],
+  "package_types": ["retail", "wholesale", "multi_piece", "combination"],
+  "declarations": [
+    {
+      "id": "manufacturer_details",
+      "label": "Name & address of manufacturer / packer / importer",
+      "legal_reference": "Rule 6(1)(a)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "presence", "message": "Name & address of the manufacturer/packer/importer is missing." },
+        { "type": "value", "validator": "nonempty_address", "message": "Address appears incomplete — a full postal address is required." }
+      ]
+    },
+    {
+      "id": "generic_name",
+      "label": "Common or generic name of the commodity",
+      "legal_reference": "Rule 6(1)(b)",
+      "condition": "always",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "Common/generic name of the commodity is missing." }
+      ]
+    },
+    {
+      "id": "net_quantity",
+      "label": "Net quantity",
+      "legal_reference": "Rule 6(1)(c)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "presence", "message": "Net quantity declaration is missing." },
+        { "type": "value", "validator": "standard_metric_unit", "message": "Net quantity must use a standard metric unit (g, kg, ml, l, m) or a count." },
+        { "type": "placement", "panel": "principal_display_panel", "message": "Net quantity must appear on the principal display panel." },
+        { "type": "font_height", "source": "font_height_table", "message": "Net quantity numerals are smaller than the minimum height required for this package size (Rule 7(2), Table-I)." }
+      ]
+    },
+    {
+      "id": "manufacture_date",
+      "label": "Month & year of manufacture / packing / import",
+      "legal_reference": "Rule 6(1)(d)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "presence", "message": "Month & year of manufacture/packing is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(mfg|mfd|manufactured|packed|pkd|date of (manufacture|packing|import))", "message": "Manufacture/packing/import date label not found." },
+        { "type": "value", "validator": "valid_month_year_not_future", "message": "Manufacture/packing date is invalid or lies in the future." }
+      ]
+    },
+    {
+      "id": "best_before",
+      "label": "Best before / use by date",
+      "legal_reference": "Rule 6(1)(da)",
+      "condition": "always",
+      "required": false,
+      "severity": "major",
+      "note": "Required for commodities that may become unfit for human consumption. By the proviso to Rule 6(1)(da), this clause defers where another law provides for it — e.g. for food articles the FSS date-marking regime governs (enforced critically by the FSSAI pack). Kept advisory here so it is validated when printed without double-penalising food.",
+      "checks": [
+        { "type": "presence", "message": "Best before / use by date is not declared." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(best\\s*before|use\\s*by|consume\\s*before|expiry|exp\\.?\\b)", "message": "Best-before / use-by label not found." },
+        { "type": "value", "validator": "valid_expiry_after_mfg", "message": "Best-before / use-by date is invalid or does not follow the manufacture date." }
+      ]
+    },
+    {
+      "id": "mrp",
+      "label": "Maximum Retail Price (MRP)",
+      "legal_reference": "Rule 6(1)(e)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "presence", "message": "MRP is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(m\\.?\\s*r\\.?\\s*p\\.?|maximum retail price)", "message": "MRP label not found." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(incl|inclusive)[^.]{0,30}all\\s*taxes", "message": "MRP must be declared as inclusive of all taxes (e.g., 'Maximum Retail Price ₹__ inclusive of all taxes')." },
+        { "type": "value", "validator": "positive_currency", "message": "MRP value is missing or is not a valid positive amount." },
+        { "type": "placement", "panel": "principal_display_panel", "message": "MRP must appear on the principal display panel." }
+      ]
+    },
+    {
+      "id": "consumer_care",
+      "label": "Consumer care details",
+      "legal_reference": "Rule 6(2)",
+      "condition": "always",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "Consumer care details are missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(consumer care|customer care|for (complaints|queries)|toll[- ]?free|helpline|care@)", "message": "Consumer care contact label not found." },
+        { "type": "value", "validator": "phone_or_email_present", "message": "Consumer care must include a contact phone number or email." }
+      ]
+    },
+    {
+      "id": "country_of_origin",
+      "label": "Country of origin",
+      "legal_reference": "Rule 6(1)(aa)",
+      "condition": "imported",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "Country of origin is required for imported packages." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(country of origin|made in|origin\\s*:)", "message": "Country of origin label not found." }
+      ]
+    },
+    {
+      "id": "unit_sale_price",
+      "label": "Unit sale price",
+      "legal_reference": "Advisory — not a distinct clause of LMPC 2011",
+      "condition": "always",
+      "required": false,
+      "severity": "minor",
+      "checks": [
+        { "type": "presence", "message": "Unit sale price (per g / ml / piece) is not declared." }
+      ]
+    },
+    {
+      "id": "dimensions",
+      "label": "Dimensions of the commodity",
+      "legal_reference": "Rule 6(1)(f)",
+      "condition": "dimension_relevant",
+      "required": true,
+      "severity": "minor",
+      "checks": [
+        { "type": "presence", "message": "Dimensions are not declared (required where relevant to the commodity)." }
+      ]
+    }
+  ],
+  "font_height_table": {
+    "basis": "area_of_principal_display_panel_cm2",
+    "legal_reference": "Rule 7(2), Table-I (as substituted by G.S.R. 629(E), 23.6.2017)",
+    "note": "Verbatim Rule 7 Table-I, normal-printing column, for net quantity declared by weight or volume. Where numerals are blown/formed/moulded/embossed the minima are higher (1.5 / 3.0 / 4.0 / 6.0 / 6.0 mm); we enforce the stricter normal-print values. For net quantity by length/area/number, Table-II applies instead.",
+    "thresholds": [
+      { "max_area_cm2": 50, "min_height_mm": 1.0 },
+      { "max_area_cm2": 100, "min_height_mm": 1.5 },
+      { "max_area_cm2": 500, "min_height_mm": 2.5 },
+      { "max_area_cm2": 2500, "min_height_mm": 4.0 },
+      { "max_area_cm2": null, "min_height_mm": 6.0 }
+    ]
+  },
+  "scoring": {
+    "verdict_rule": "any failed CRITICAL check => non_compliant; else any failed MAJOR => needs_review; else compliant",
+    "weights": { "critical": 3, "major": 2, "minor": 1 },
+    "score_formula": "100 * sum(weight of passed checks) / sum(weight of all applicable checks)"
+  }
+}

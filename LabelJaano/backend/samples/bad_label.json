@@ -1,0 +1,27 @@
+{
+  "_comment": "Simulated output for a NON-COMPLIANT packaged-food label. Designed to trip a spread of checks across severities: missing/invalid net quantity, wrong panel, tiny font, MRP not 'inclusive of all taxes', missing veg mark + FSSAI logo, invalid FSSAI number, expiry before manufacture, incomplete address, missing contact, incomplete nutrition.",
+  "category": "packaged_food",
+  "raw_text": "Crunchy Potato Chips. Consumer Care: XYZ Snacks, India. Net 30. MFG 08/2026. MRP 20. Ingredients: Potato, Edible Oil, Salt, Spices. Energy 500 kcal. FSSAI Lic 12345. Use by 01/2026. Batch B12.",
+  "fields": {
+    "manufacturer_details": { "value": "XYZ Snacks", "panel": "back_panel", "confidence": 0.8 },
+    "generic_name": { "value": "Potato Chips", "panel": "principal_display_panel", "confidence": 0.95 },
+    "net_quantity": { "value": "30", "panel": "back_panel", "height_mm": 0.8, "confidence": 0.7 },
+    "manufacture_date": { "value": "MFG 08/2026", "panel": "back_panel", "confidence": 0.85 },
+    "mrp": { "value": "MRP 20", "panel": "principal_display_panel", "height_mm": 3.0, "confidence": 0.88 },
+    "consumer_care": { "value": "Consumer Care: XYZ Snacks, India", "panel": "back_panel", "confidence": 0.8 },
+    "ingredients_list": { "value": "Potato, Edible Oil, Salt, Spices", "panel": "back_panel", "confidence": 0.9 },
+    "nutritional_info": { "value": "Energy 500 kcal", "panel": "back_panel", "confidence": 0.75 },
+    "fssai_license": { "value": "FSSAI Lic 12345", "panel": "back_panel", "confidence": 0.8 },
+    "date_marking": { "value": "Use by 01/2026", "panel": "back_panel", "confidence": 0.82 },
+    "lot_batch_number": { "value": "Batch B12", "panel": "back_panel", "confidence": 0.85 }
+  },
+  "symbols_detected": [],
+  "context": {
+    "is_imported": false,
+    "is_single_ingredient": false,
+    "has_additives": false,
+    "has_allergens": false,
+    "dimension_relevant": false,
+    "pdp_area_cm2": 250
+  }
+}

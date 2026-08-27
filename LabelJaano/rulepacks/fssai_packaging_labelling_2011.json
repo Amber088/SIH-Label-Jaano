@@ -1,0 +1,102 @@
+{
+  "pack_id": "fssai_packaging_labelling_2011",
+  "label": "FSS (Packaging & Labelling) Regulations, 2011 — product-specific declarations",
+  "authority": "Food Safety and Standards Authority of India (FSSAI)",
+  "scope": "category",
+  "applies_when": { "category_in": ["packaged_food", "food", "beverage", "packaged_water"] },
+  "stacks_on": ["legal_metrology_2011", "fssai_food_2020"],
+  "version": "2011.r2017",
+  "source_note": "Product-specific mandatory declarations from FSS (Packaging & Labelling) Regulations, 2011. Each declaration is gated by a narrow trait flag (has_added_colour, has_caffeine, …) that the extraction pipeline sets only when it detects the trait, so the check SKIPs for products it does not concern. Statement wordings are quoted from the regulation; regexes detect them tolerantly (case-insensitive, spacing-flexible).",
+  "declarations": [
+    {
+      "id": "added_colour_declaration",
+      "label": "Added-colour declaration",
+      "legal_reference": "Reg 2.2.2(5)(ii)(a)",
+      "condition": "has_added_colour",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)contains\\s+permitted\\s+(natural|synthetic)(\\s+and\\s+synthetic)?\\s+(food\\s+)?colou?rs?", "message": "A product with added colour must declare 'CONTAINS PERMITTED NATURAL COLOUR(S)' / 'CONTAINS PERMITTED SYNTHETIC FOOD COLOUR(S)' (or the combined form)." }
+      ]
+    },
+    {
+      "id": "added_flavour_declaration",
+      "label": "Added-flavour declaration",
+      "legal_reference": "Reg 2.2.2(5)(ii)(b)",
+      "condition": "has_added_flavour",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)contains\\s+added\\s+flavou?r", "message": "A product with added flavour must carry 'CONTAINS ADDED FLAVOUR' with the flavour type." }
+      ]
+    },
+    {
+      "id": "artificial_sweetener_declaration",
+      "label": "Artificial-sweetener declarations",
+      "legal_reference": "Reg 2.4.5(24) & 2.4.5(27)",
+      "condition": "has_artificial_sweetener",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)not\\s+recommended\\s+for\\s+children", "message": "A food with an artificial sweetener must state 'Not recommended for children'." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(aspartame|acesulfame|sucralose|saccharin|sorbitol|neotame|artificial\\s+sweetener)", "message": "The specific artificial sweetener must be named on the label." }
+      ]
+    },
+    {
+      "id": "aspartame_pku_warning",
+      "label": "Aspartame phenylketonurics warning",
+      "legal_reference": "Reg 2.4.5(24)",
+      "condition": "has_aspartame",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(not\\s+for\\s+phenylketonurics|contains\\s+phenylalanine)", "message": "A product sweetened with Aspartame must state 'Not for Phenylketonurics'." }
+      ]
+    },
+    {
+      "id": "caffeine_declaration",
+      "label": "Added-caffeine declaration",
+      "legal_reference": "Reg 2.4.5(38)",
+      "condition": "has_caffeine",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)contains\\s+caffeine", "message": "A product with added caffeine must declare 'CONTAINS CAFFEINE'." }
+      ]
+    },
+    {
+      "id": "msg_declaration",
+      "label": "Monosodium glutamate declaration",
+      "legal_reference": "Reg 2.4.5(18)",
+      "condition": "has_added_msg",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(monosodium\\s+glutamate|\\bmsg\\b|\\be\\s*621\\b|ins\\s*621)", "message": "Added monosodium glutamate must be declared." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)not\\s+recommended\\s+for\\s+infants(\\s+below\\s+12\\s+months)?", "message": "A food with added MSG must state 'NOT RECOMMENDED FOR INFANTS BELOW 12 MONTHS'." }
+      ]
+    },
+    {
+      "id": "irradiated_food_declaration",
+      "label": "Irradiated-food declaration",
+      "legal_reference": "Reg 2.4.4",
+      "condition": "is_irradiated",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(processed\\s+by\\s+irradiation|treated\\s+with\\s+ionis?ing\\s+radiation)", "message": "Irradiated food must carry the words 'PROCESSED BY IRRADIATION METHOD' with the licence, date and logo." }
+      ]
+    },
+    {
+      "id": "pan_masala_warning",
+      "label": "Pan Masala statutory warning",
+      "legal_reference": "Reg 2.4.5(30)",
+      "condition": "is_pan_masala",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)chewing\\s+of\\s+pan\\s+masala\\s+is\\s+injurious\\s+to\\s+health", "message": "Pan Masala must carry the statutory warning 'Chewing of Pan Masala is injurious to health'." }
+      ]
+    }
+  ]
+}

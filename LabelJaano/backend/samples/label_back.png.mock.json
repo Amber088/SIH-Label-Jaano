@@ -1,0 +1,626 @@
+{
+  "image_width": 900,
+  "image_height": 1300,
+  "ocr_words": [
+    {
+      "text": "INGREDIENTS:",
+      "bbox": [
+        60,
+        79,
+        255,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Wheat",
+      "bbox": [
+        323,
+        78,
+        113,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Flour,",
+      "bbox": [
+        444,
+        78,
+        97,
+        34
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Sugar,",
+      "bbox": [
+        549,
+        79,
+        110,
+        37
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Edible",
+      "bbox": [
+        60,
+        144,
+        109,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Vegetable",
+      "bbox": [
+        177,
+        144,
+        176,
+        38
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Oil,",
+      "bbox": [
+        361,
+        144,
+        54,
+        34
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Milk",
+      "bbox": [
+        423,
+        144,
+        73,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Solids,",
+      "bbox": [
+        503,
+        144,
+        112,
+        34
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Salt.",
+      "bbox": [
+        623,
+        144,
+        72,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "NUTRITIONAL",
+      "bbox": [
+        60,
+        277,
+        249,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "INFORMATION",
+      "bbox": [
+        317,
+        277,
+        261,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "(per",
+      "bbox": [
+        586,
+        275,
+        69,
+        38
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "100",
+      "bbox": [
+        663,
+        277,
+        66,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "g):",
+      "bbox": [
+        737,
+        275,
+        44,
+        39
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Energy",
+      "bbox": [
+        60,
+        344,
+        124,
+        36
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "450",
+      "bbox": [
+        192,
+        343,
+        66,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "kcal",
+      "bbox": [
+        266,
+        342,
+        69,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Protein",
+      "bbox": [
+        351,
+        343,
+        124,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "7",
+      "bbox": [
+        483,
+        344,
+        22,
+        27
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "g",
+      "bbox": [
+        513,
+        350,
+        24,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Carbohydrate",
+      "bbox": [
+        60,
+        408,
+        239,
+        38
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "70",
+      "bbox": [
+        307,
+        409,
+        44,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "g",
+      "bbox": [
+        359,
+        416,
+        24,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Fat",
+      "bbox": [
+        399,
+        410,
+        55,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "15",
+      "bbox": [
+        462,
+        410,
+        44,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "g",
+      "bbox": [
+        514,
+        416,
+        24,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "MFG",
+      "bbox": [
+        60,
+        541,
+        83,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "03/2026",
+      "bbox": [
+        151,
+        541,
+        144,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Use",
+      "bbox": [
+        327,
+        542,
+        66,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "by",
+      "bbox": [
+        401,
+        540,
+        43,
+        38
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "12/2026",
+      "bbox": [
+        452,
+        541,
+        144,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Best",
+      "bbox": [
+        60,
+        608,
+        76,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "before",
+      "bbox": [
+        144,
+        606,
+        112,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "9",
+      "bbox": [
+        264,
+        607,
+        22,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "months",
+      "bbox": [
+        294,
+        606,
+        131,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "from",
+      "bbox": [
+        433,
+        606,
+        79,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "manufacture",
+      "bbox": [
+        520,
+        606,
+        220,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Batch",
+      "bbox": [
+        60,
+        672,
+        100,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "No",
+      "bbox": [
+        168,
+        674,
+        50,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "L2026-045",
+      "bbox": [
+        226,
+        673,
+        186,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "FSSAI",
+      "bbox": [
+        60,
+        805,
+        101,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Lic",
+      "bbox": [
+        169,
+        805,
+        51,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "No",
+      "bbox": [
+        228,
+        806,
+        50,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "10012345678901",
+      "bbox": [
+        286,
+        805,
+        308,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Consumer",
+      "bbox": [
+        60,
+        871,
+        179,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Care:",
+      "bbox": [
+        247,
+        871,
+        89,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "care@brand.com",
+      "bbox": [
+        344,
+        870,
+        291,
+        33
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Toll-free",
+      "bbox": [
+        60,
+        936,
+        140,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "1800-123-4567",
+      "bbox": [
+        208,
+        937,
+        262,
+        29
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Marketed",
+      "bbox": [
+        60,
+        1068,
+        166,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "by",
+      "bbox": [
+        234,
+        1068,
+        43,
+        38
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Brand",
+      "bbox": [
+        285,
+        1068,
+        104,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Foods",
+      "bbox": [
+        397,
+        1068,
+        108,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Pvt",
+      "bbox": [
+        513,
+        1070,
+        56,
+        28
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Ltd,",
+      "bbox": [
+        577,
+        1068,
+        67,
+        34
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Plot",
+      "bbox": [
+        60,
+        1134,
+        67,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "5,",
+      "bbox": [
+        135,
+        1136,
+        30,
+        32
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "MIDC,",
+      "bbox": [
+        173,
+        1135,
+        107,
+        33
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Pune,",
+      "bbox": [
+        288,
+        1136,
+        98,
+        32
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "Maharashtra",
+      "bbox": [
+        394,
+        1134,
+        217,
+        30
+      ],
+      "confidence": 0.98
+    },
+    {
+      "text": "411001",
+      "bbox": [
+        619,
+        1135,
+        132,
+        29
+      ],
+      "confidence": 0.98
+    }
+  ]
+}

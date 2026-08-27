@@ -1,0 +1,129 @@
+{
+  "pack_id": "fssai_food_2020",
+  "label": "FSSAI — Food Safety & Standards (Labelling & Display) Regulations, 2020",
+  "authority": "Food Safety and Standards Authority of India (FSSAI)",
+  "scope": "category",
+  "applies_when": { "category_in": ["packaged_food", "food", "beverage", "packaged_water"] },
+  "version": "2020",
+  "effective_date": "2020-01-01",
+  "source_note": "Encodes the structure of the FSSAI Labelling & Display Regulations, 2020. Regex/threshold specifics are engineered starting points — verify against fssai.gov.in before a live deployment. Apply TOGETHER with legal_metrology_2011 (every food package also carries the Legal Metrology declarations).",
+  "stacks_on": ["legal_metrology_2011"],
+  "declarations": [
+    {
+      "id": "ingredients_list",
+      "label": "List of ingredients (descending order by weight)",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.2",
+      "condition": "not_single_ingredient",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "List of ingredients is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)ingredient", "message": "Ingredients list label not found." }
+      ]
+    },
+    {
+      "id": "nutritional_info",
+      "label": "Nutritional information",
+      "legal_reference": "L&D Regulations 2020, Reg. 5",
+      "condition": "always",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "Nutritional information panel is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(energy|kcal|k\\s*cal|protein|carbohydrate|\\bfat\\b|nutrition)", "message": "Nutritional information (energy/protein/carbohydrate/fat) not found." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(per\\s*100\\s*(g|ml|gram)|per\\s*serv)", "message": "Nutritional values should be declared per 100 g/ml and/or per serving." }
+      ]
+    },
+    {
+      "id": "veg_nonveg_mark",
+      "label": "Veg / Non-veg symbol",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.1.2",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "symbol", "symbol": "veg_nonveg_mark", "message": "Mandatory veg (green dot) / non-veg (brown triangle) symbol was not detected." }
+      ]
+    },
+    {
+      "id": "fssai_license",
+      "label": "FSSAI logo + 14-digit licence number",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.1.1",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "symbol", "symbol": "fssai_logo", "message": "FSSAI logo was not detected." },
+        { "type": "presence", "message": "FSSAI licence/registration number is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(fssai|lic\\.?\\s*no|licen[cs]e)", "message": "FSSAI licence label not found." },
+        { "type": "value", "validator": "fssai_license_14digit", "message": "FSSAI licence number must be a 14-digit number." }
+      ]
+    },
+    {
+      "id": "date_marking",
+      "label": "Date of manufacture + best before / use by / expiry",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.3",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "presence", "message": "Date marking is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(best before|use by|expiry|exp\\.?|date of (manufacture|packing))", "message": "Best before / use by / expiry date not found." },
+        { "type": "value", "validator": "valid_expiry_after_mfg", "message": "Expiry/best-before date is invalid or precedes the manufacture date." }
+      ]
+    },
+    {
+      "id": "lot_batch_number",
+      "label": "Lot / batch / code number",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.4",
+      "condition": "always",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "Lot/batch/code number is missing." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(lot\\s*no|batch\\s*no|b\\.?\\s*no|code\\s*no|lot|batch)", "message": "Lot/batch/code number label not found." }
+      ]
+    },
+    {
+      "id": "food_additives",
+      "label": "Food additives (class name + INS number)",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.2",
+      "condition": "has_additives",
+      "required": true,
+      "severity": "minor",
+      "checks": [
+        { "type": "presence", "message": "Food additives should be declared by class name and INS number where present." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(ins\\s*\\d{3}|e\\s*\\d{3}|colour|flavour|preservative|emulsifier|stabili[sz]er|acidity regulator)", "message": "Additive class name / INS number pattern not found." }
+      ]
+    },
+    {
+      "id": "allergen_declaration",
+      "label": "Allergen declaration",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.2.2",
+      "condition": "has_allergens",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "presence", "message": "No allergen declaration detected (required when allergens are present)." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(contains|allergen|may contain)[^.]{0,60}(milk|egg|peanut|nuts|soy|gluten|wheat|fish|shellfish|sesame)", "message": "Allergen advisory statement not found." }
+      ]
+    },
+    {
+      "id": "storage_instructions",
+      "label": "Storage conditions / instructions for use",
+      "legal_reference": "L&D Regulations 2020, Reg. 2.5",
+      "condition": "always",
+      "required": false,
+      "severity": "minor",
+      "checks": [
+        { "type": "presence", "message": "Storage conditions / instructions for use are not declared." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(store in|keep (in|refrigerated)|storage|once opened|consume within|instructions? for use)", "message": "Storage / use instructions label not found." }
+      ]
+    }
+  ],
+  "scoring": {
+    "verdict_rule": "any failed CRITICAL check => non_compliant; else any failed MAJOR => needs_review; else compliant",
+    "weights": { "critical": 3, "major": 2, "minor": 1 },
+    "score_formula": "100 * sum(weight of passed checks) / sum(weight of all applicable checks)"
+  }
+}

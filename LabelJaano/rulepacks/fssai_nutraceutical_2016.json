@@ -1,0 +1,74 @@
+{
+  "pack_id": "fssai_nutraceutical_2016",
+  "label": "FSS (Health Supplements, Nutraceuticals, Food for Special Dietary Use, Food for Special Medical Purpose, Functional Food and Novel Food) Regulations, 2016 — labelling",
+  "authority": "Food Safety and Standards Authority of India (FSSAI)",
+  "scope": "category",
+  "applies_when": { "category_in": ["nutraceutical", "health_supplement", "food_special_dietary", "food_special_medical", "functional_food", "probiotic", "prebiotic"] },
+  "stacks_on": ["legal_metrology_2011"],
+  "version": "2016",
+  "source_note": "Encodes the label-verifiable, cross-cutting statutory particulars that the 2016 Regulations impose on every product in this family (health supplements — Reg 6; nutraceuticals — Reg 7; food for special dietary use — Reg 8; food for special medical purpose — Reg 9; probiotic and prebiotic foods). The Regulations define eight mutually-exclusive sub-types, each with its own detailed particulars; rather than guess a sub-type from a photo, this pack checks the requirements common to all of them: the mandatory category words, the mandatory medicinal-use advisory, the blanket prohibition on disease claims, and the store-out-of-reach-of-children statement. Ingredient identity, permitted actives (Schedules I–VIII) and RDA/upper-limit quantities are compositional facts that a photo cannot verify — they are surfaced as reference standards only. Generic FSSAI licensing and veg/non-veg marks (FSS Packaging & Labelling / Licensing Regs) apply in addition and are checked by the FSSAI food pack when the product is also classified as food.",
+  "declarations": [
+    {
+      "id": "nutra_category_words",
+      "label": "Mandatory category words on the label",
+      "legal_reference": "Reg 6(3)(iii)(a), 7(4)(iii)(a), 8(3)(iii)(a), 9(3)(a)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(health\\s+supplement|nutraceutical|food\\s+for\\s+special\\s+dietary\\s+use|food\\s+for\\s+special\\s+medical\\s+purpose|probiotic|prebiotic|functional\\s+food)", "message": "The package must bear the mandatory category words identifying it — e.g. 'HEALTH SUPPLEMENT', 'NUTRACEUTICAL', 'FOOD FOR SPECIAL DIETARY USE', 'FOOD FOR SPECIAL MEDICAL PURPOSE', 'PROBIOTIC FOOD' or 'PREBIOTIC FOOD'." }
+      ]
+    },
+    {
+      "id": "nutra_medicinal_use_advisory",
+      "label": "Mandatory medicinal-use advisory",
+      "legal_reference": "Reg 6(3)(iii)(d), 7(4)(iii)(f), 8(3)(iii)(g); FSMP: Reg 9(3)(b)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(not\\s+for\\s+medicinal\\s+use|under\\s+medical\\s+advice(\\s+only)?|under\\s+medical\\s+supervision)", "message": "The label must carry the statutory advisory 'NOT FOR MEDICINAL USE' (or, for a food for special medical purpose, 'RECOMMENDED TO BE USED UNDER MEDICAL ADVICE ONLY')." }
+      ]
+    },
+    {
+      "id": "nutra_no_disease_claim",
+      "label": "No disease prevention / cure / treatment claim",
+      "legal_reference": "Reg 6(3)(i), 7(4)(i), 8(3)(i)",
+      "condition": "always",
+      "required": true,
+      "severity": "critical",
+      "checks": [
+        { "type": "format", "target": "raw_text", "negate": true, "regex": "(?i)(cures?|prevents?|treats?|heals?|remedy\\s+for|protects?\\s+against)\\s+[\\w,\\s]{0,25}(disease|diabetes|cancer|arthritis|hypertension|blood\\s+pressure|obesity|infection|ailment|disorder)", "message": "The labelling must not claim that the product prevents, treats or cures any disease (disease claims are prohibited for this product family)." }
+      ]
+    },
+    {
+      "id": "nutra_out_of_reach_children",
+      "label": "Store out of reach of children",
+      "legal_reference": "Reg 6(3)(iii)(h), 7(4)(iii)(i), 8(3)(iii)(m)",
+      "condition": "always",
+      "required": true,
+      "severity": "major",
+      "checks": [
+        { "type": "format", "target": "raw_text", "regex": "(?i)(out\\s+of\\s+reach\\s+of\\s+children|keep\\s+away\\s+from\\s+children|stored?\\s+out\\s+of\\s+(the\\s+)?reach)", "message": "The label must state that the product is to be stored out of reach of children." }
+      ]
+    }
+  ],
+  "reference_standards": [
+    {
+      "id": "nutra_permitted_ingredients_schedules",
+      "label": "Permitted ingredients & actives (Schedules I–VIII)",
+      "legal_reference": "Reg 6(2), 7(2), 8(2) & Schedules I, II, III, IV, VI, VII, VIII",
+      "authority": "FSSAI",
+      "note": "Only nutrients, plant/botanical ingredients, enzymes, probiotic strains and additives listed in the relevant Schedules (I, II, III, IV, VI, VII, VIII; additives/colours in Schedules VA–VF) may be used. The actual identity, source and purity of the ingredients cannot be verified from a label photo — confirm against the product's specification and, where required, laboratory analysis.",
+      "condition": "always"
+    },
+    {
+      "id": "nutra_rda_upper_limits",
+      "label": "Nutrient quantity vs recommended daily allowance / upper limits",
+      "legal_reference": "Reg 6(3), 7(4) (ICMR recommended daily allowance)",
+      "authority": "FSSAI",
+      "note": "The quantity of each nutrient added must not exceed the recommended daily allowance specified by the Indian Council of Medical Research (and, for food for special dietary use, the tolerable upper limits of Schedule III). Whether the declared amounts actually fall within these limits is a compositional check — verify by laboratory assay, not from the label image.",
+      "condition": "always"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "_comment": "Simulated OCR + vision-LLM output for a COMPLIANT packaged-food label. Fields are keyed by declaration id; this is the contract the extraction pipeline must produce.",
+  "category": "packaged_food",
+  "raw_text": "Parle-G Glucose Biscuits. Net Quantity 76 g. Maximum Retail Price MRP Rs 10 inclusive of all taxes. MFG 03/2026. Ingredients: Wheat Flour, Sugar, Edible Vegetable Oil, Invert Syrup, Milk Solids, Salt, Raising Agents. Nutritional Information per 100 g: Energy 450 kcal, Protein 7 g, Carbohydrate 70 g (Sugars 22 g), Fat 15 g. Consumer Care: care@brand.com, Toll-free 1800-123-4567. FSSAI Lic No 10012345678901. Best before 9 months from manufacture. Use by 12/2026. Batch No L2026-045. Store in a cool, dry place away from sunlight. Marketed by Brand Foods Pvt Ltd, Plot 5, MIDC, Pune, Maharashtra 411001.",
+  "fields": {
+    "manufacturer_details": { "value": "Brand Foods Pvt Ltd, Plot 5, MIDC, Pune, Maharashtra 411001", "panel": "back_panel", "confidence": 0.95 },
+    "generic_name": { "value": "Glucose Biscuits", "panel": "principal_display_panel", "confidence": 0.97 },
+    "net_quantity": { "value": "76 g", "panel": "principal_display_panel", "height_mm": 2.6, "confidence": 0.93 },
+    "manufacture_date": { "value": "MFG 03/2026", "panel": "back_panel", "confidence": 0.9 },
+    "mrp": { "value": "Maximum Retail Price Rs 10 inclusive of all taxes", "panel": "principal_display_panel", "height_mm": 3.1, "confidence": 0.94 },
+    "consumer_care": { "value": "Consumer Care: care@brand.com, Toll-free 1800-123-4567", "panel": "back_panel", "confidence": 0.9 },
+    "ingredients_list": { "value": "Wheat Flour, Sugar, Edible Vegetable Oil, Invert Syrup, Milk Solids, Salt, Raising Agents", "panel": "back_panel", "confidence": 0.92 },
+    "nutritional_info": { "value": "Energy 450 kcal, Protein 7 g, Carbohydrate 70 g, Fat 15 g per 100 g", "panel": "back_panel", "confidence": 0.9 },
+    "fssai_license": { "value": "FSSAI Lic No 10012345678901", "panel": "back_panel", "confidence": 0.95 },
+    "date_marking": { "value": "Best before 9 months from manufacture. Use by 12/2026", "panel": "back_panel", "confidence": 0.9 },
+    "lot_batch_number": { "value": "Batch No L2026-045", "panel": "back_panel", "confidence": 0.9 },
+    "storage_instructions": { "value": "Store in a cool, dry place away from sunlight", "panel": "back_panel", "confidence": 0.9 }
+  },
+  "symbols_detected": ["veg_nonveg_mark", "fssai_logo"],
+  "context": {
+    "is_imported": false,
+    "is_single_ingredient": false,
+    "has_additives": false,
+    "has_allergens": false,
+    "dimension_relevant": false,
+    "pdp_area_cm2": 300
+  }
+}
