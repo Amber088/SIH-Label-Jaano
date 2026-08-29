@@ -303,11 +303,16 @@ class ComplianceReport {
       );
 
   /// A friendly title for the category (e.g. "packaged_food" -> "Packaged food").
-  String get categoryLabel {
-    if (category.isEmpty || category == 'unknown') return 'Uncategorised';
-    final words = category.replaceAll('_', ' ').split(' ');
-    return words
-        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
-        .join(' ');
-  }
+  String get categoryLabel => prettyCategory(category);
+}
+
+/// "packaged_food" -> "Packaged food". Top-level because a history row carries a
+/// category without carrying a report, and two copies of this would eventually
+/// disagree about how to spell a category name on two different screens.
+String prettyCategory(String category) {
+  if (category.isEmpty || category == 'unknown') return 'Uncategorised';
+  final words = category.replaceAll('_', ' ').split(' ');
+  return words
+      .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
 }

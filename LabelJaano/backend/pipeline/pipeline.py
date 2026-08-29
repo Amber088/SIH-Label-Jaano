@@ -24,7 +24,9 @@ from typing import Optional
 
 from .calibration import estimate_scale
 from .fusion import fuse
+from .gemini import _mock_requested as _gemini_mock_requested
 from .gemini import extract_fields
+from .ocr import _mock_requested as _ocr_mock_requested
 from .ocr import run_ocr
 from .types import ImageInput
 
@@ -33,6 +35,52 @@ _FALLBACK_CATEGORIES = [
     "packaged_food", "food", "beverage", "packaged_water",
     "cosmetics", "drugs", "electronics", "household", "other", "unknown",
 ]
+
+
+def resolve_mock_mode(mock: Optional[bool] = None) -> dict:
+    """Report which extraction path a run with this ``mock`` argument will take.
+
+    This exists because the auto-detecting default is a genuine trap. Each layer
+    independently falls back to its offline mock when its dependency is missing — and
+    :mod:`pipeline.gemini` treats *no API key* as a reason to fall back. So on a
+    machine without ``GEMINI_API_KEY`` the default path quietly returns canned label
+    values, and the engine dutifully judges them. Every check passes, and a photo of a
+    book comes back compliant.
+
+    That is the right behaviour for a laptop with nothing installed, but a report built
+    on synthetic values must never be filed as if it were a real optical read. Callers
+    ask this *before* extracting, so the stored report and the printed document can
+    both say plainly where their values came from, and why.
+
+    Returns ``{"mock", "ocr_mock", "gemini_mock", "reason"}``. ``mock`` is true when
+    *any* layer is offline: a partially-synthetic read is not a live one.
+    """
+    if mock is True:
+        return {"mock": True, "ocr_mock": True, "gemini_mock": True,
+                "reason": "offline mock explicitly requested"}
+    if mock is False:
+        return {"mock": False, "ocr_mock": False, "gemini_mock": False,
+                "reason": "live extraction explicitly requested"}
+
+    ocr_mock = _ocr_mock_requested()
+    gemini_mock = _gemini_mock_requested()
+
+    if ocr_mock:
+        # OCR only ever mocks on the explicit env flag, and that flag forces every
+        # layer offline, so this is the whole-pipeline-mock case.
+        reason = "LABEL_JAANO_MOCK is set, so OCR and field extraction are both offline"
+    elif gemini_mock:
+        reason = ("no GEMINI_API_KEY / GOOGLE_API_KEY is configured, so field "
+                  "extraction fell back to canned values")
+    else:
+        reason = "live OCR and live vision model"
+
+    return {
+        "mock": ocr_mock or gemini_mock,
+        "ocr_mock": ocr_mock,
+        "gemini_mock": gemini_mock,
+        "reason": reason,
+    }
 
 
 def _rule_vocabulary():

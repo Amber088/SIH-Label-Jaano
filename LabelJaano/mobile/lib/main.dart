@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'core/theme.dart';
+import 'services/api_client.dart';
 import 'services/scan_store.dart';
+import 'services/session.dart';
 import 'services/settings.dart';
 import 'screens/home_shell.dart';
 
@@ -64,10 +66,35 @@ class LabelJaanoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Order is load-bearing, not stylistic. Settings owns the server address;
+    // Session needs to read it at call time; ScanStore needs both. Each provider
+    // below therefore only reaches backwards in this list, never forwards.
+    //
+    // The address is passed as a closure (`() => ...baseUrl`) rather than a value
+    // so that changing the server in Settings takes effect on the very next
+    // request. Handing over a string here would freeze whatever it happened to be
+    // at startup, and the symptom — Settings saying one thing while the app dials
+    // another — is a miserable thing to debug on a demo stage.
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => Settings()),
-        ChangeNotifierProvider(create: (_) => ScanStore()),
+        Provider<ApiClient>(
+          create: (_) => ApiClient(),
+          dispose: (_, client) => client.dispose(),
+        ),
+        ChangeNotifierProvider<Session>(
+          create: (ctx) => Session(
+            api: ctx.read<ApiClient>(),
+            baseUrl: () => ctx.read<Settings>().baseUrl,
+          ),
+        ),
+        ChangeNotifierProvider<ScanStore>(
+          create: (ctx) => ScanStore(
+            api: ctx.read<ApiClient>(),
+            baseUrl: () => ctx.read<Settings>().baseUrl,
+            session: ctx.read<Session>(),
+          ),
+        ),
       ],
       child: MaterialApp(
         title: 'Label Jaano',

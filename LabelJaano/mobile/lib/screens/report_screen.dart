@@ -1,12 +1,17 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
 import '../models/compliance_report.dart';
-import '../models/scan_record.dart';
+import '../models/saved_scan.dart';
+import '../services/api_client.dart';
 import '../services/scan_store.dart';
+import '../services/session.dart';
+import '../services/settings.dart';
 import '../widgets/common.dart';
 import '../widgets/result_tiles.dart';
 import '../widgets/verdict_banner.dart';
@@ -15,47 +20,278 @@ import '../widgets/verdict_banner.dart';
 /// tally, the captured panels, every violation citing its exact rule, and the
 /// complete audited check list (pass / fail / skip). Reached from the queue,
 /// the dashboard, or straight after a scan.
-class ReportScreen extends StatelessWidget {
+///
+/// The report body can arrive from either of two places, and this screen has to
+/// cope with both. A scan taken on this device carries its report (and its
+/// photos) in memory. A row filed on *another* device arrives from the history
+/// list without a body — the list endpoint omits it deliberately — so it is
+/// fetched on entry. Hence a StatefulWidget: opening an inspection can involve a
+/// request.
+class ReportScreen extends StatefulWidget {
   const ReportScreen({super.key, required this.recordId});
   final String recordId;
 
   @override
+  State<ReportScreen> createState() => _ReportScreenState();
+}
+
+class _ReportScreenState extends State<ReportScreen> {
+  bool _loading = false;
+  String? _loadError;
+
+  /// A share or delete is in flight. Blocks both buttons, because either one
+  /// firing twice is a mess: two links to revoke, or a delete racing a fetch.
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _hydrate());
+  }
+
+  Future<void> _hydrate() async {
+    final store = context.read<ScanStore>();
+    final row = store.byId(widget.recordId);
+    // Nothing to do for a scan taken here: its report never left memory.
+    if (row == null || row.hasReport) return;
+    setState(() => _loading = true);
+    try {
+      await store.loadDetail(widget.recordId);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _loadError = e.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _delete(SavedScan row) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: Palette.card,
+        title: Text('Delete this inspection?',
+            style: LabelJaanoTheme.display(size: 18)),
+        content: Text(
+          row.filed
+              ? 'This removes the inspection from the server as well as this '
+                  'device. It cannot be undone.'
+              : 'This scan was never filed, so it only exists on this device.',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Palette.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await context.read<ScanStore>().deleteScan(widget.recordId);
+      if (mounted) Navigator.of(context).pop();
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _toast(e.message);
+      }
+    }
+  }
+
+  /// Mint a short-lived link to this report and offer it for copying.
+  ///
+  /// This is how an inspection gets printed or emailed: a phone cannot print, and
+  /// a browser address bar cannot send an Authorization header. The ticket in the
+  /// link opens this one report for a few minutes and is refused everywhere a
+  /// session token is expected, so forwarding it does not hand over the account.
+  Future<void> _share() async {
+    final store = context.read<ScanStore>();
+    final base = context.read<Settings>().baseUrl;
+    setState(() => _busy = true);
+    try {
+      final link = await store.shareReport(widget.recordId);
+      if (!mounted) return;
+      final url = link.urlFrom(ApiClient.normaliseBase(base));
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Palette.card,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (_) => _ShareSheet(url: url, validFor: link.validFor),
+      );
+    } on ApiException catch (e) {
+      if (mounted) _toast(e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _toast(String msg) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  @override
   Widget build(BuildContext context) {
-    final record = context.watch<ScanStore>().byId(recordId);
+    final store = context.watch<ScanStore>();
+    final session = context.watch<Session>();
+    final row = store.byId(widget.recordId);
+
+    // Only this device has the photos — the API never stores an image — so they
+    // come from the local record rather than the row.
+    final local = store.localFor(widget.recordId);
+    final report = row?.report ?? local?.report;
+    final canShare = row != null && row.filed && session.isSignedIn;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Inspection report'),
         actions: [
-          if (record != null)
+          if (canShare)
+            IconButton(
+              tooltip: 'Share a printable link',
+              icon: const Icon(Icons.ios_share_rounded),
+              onPressed: _busy ? null : _share,
+            ),
+          if (row != null)
             IconButton(
               tooltip: 'Delete inspection',
               icon: const Icon(Icons.delete_outline_rounded),
-              onPressed: () {
-                context.read<ScanStore>().remove(recordId);
-                Navigator.of(context).pop();
-              },
+              onPressed: _busy ? null : () => _delete(row),
             ),
         ],
       ),
-      body: record == null
-          ? const EmptyState(
-              icon: Icons.search_off_rounded,
-              title: 'Inspection not found',
-              message: 'It may have been removed from this session.',
-            )
-          : _ReportBody(record: record),
+      body: _body(row, report, local?.thumbnails ?? const [], session),
+    );
+  }
+
+  Widget _body(SavedScan? row, ComplianceReport? report,
+      List<Uint8List> thumbnails, Session session) {
+    if (row == null) {
+      return const EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'Inspection not found',
+        message: 'It may have been deleted, or belong to another account.',
+      );
+    }
+    if (report == null) {
+      if (_loading) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return EmptyState(
+        icon: Icons.cloud_download_outlined,
+        title: 'Report not loaded',
+        message: _loadError ??
+            (session.isSignedIn
+                ? 'The stored report could not be fetched. Pull to refresh the '
+                    'queue and try again.'
+                : 'Sign in to open an inspection filed on the server.'),
+      );
+    }
+    return _ReportBody(row: row, report: report, thumbnails: thumbnails);
+  }
+}
+
+/// The copied-link sheet. Deliberately shows the whole URL: the officer is about
+/// to hand this to someone, and a link you cannot read before sending is a link
+/// you cannot be responsible for.
+class _ShareSheet extends StatelessWidget {
+  const _ShareSheet({required this.url, required this.validFor});
+  final String url;
+  final String validFor;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Palette.hairline, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Printable report link',
+                style: LabelJaanoTheme.display(size: 18, weight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(
+              'Opens this one inspection in any browser — no sign-in needed, and '
+              'use the browser\'s own Print for a PDF. Valid for $validFor, then '
+              'it stops working.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Palette.paper,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Palette.hairline),
+              ),
+              child: SelectableText(url,
+                  style: LabelJaanoTheme.readout(size: 11.5, color: Palette.navy)),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.copy_rounded, size: 18),
+                label: const Text('Copy link'),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: url));
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Link copied · valid for $validFor')),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'The link carries a ticket scoped to this report alone. It cannot be '
+              'used to sign in, and it dies with your account.',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(fontSize: 11.5, color: Palette.faint),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
 class _ReportBody extends StatelessWidget {
-  const _ReportBody({required this.record});
-  final ScanRecord record;
+  const _ReportBody({
+    required this.row,
+    required this.report,
+    required this.thumbnails,
+  });
+
+  final SavedScan row;
+  final ComplianceReport report;
+
+  /// Empty for an inspection filed elsewhere — the server keeps the findings,
+  /// never the photograph.
+  final List<Uint8List> thumbnails;
 
   @override
   Widget build(BuildContext context) {
-    final r = record.report;
+    final r = report;
 
     // A "no label" read ran no checks: the tally, violations, and check list
     // would all be empty (and the green "all clear" would be actively
@@ -67,12 +303,14 @@ class _ReportBody extends StatelessWidget {
           VerdictBanner(report: r),
           const SizedBox(height: 20),
           _NoLabelNote(),
-          if (record.thumbnails.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          _MetaCard(row: row),
+          if (thumbnails.isNotEmpty) ...[
             const SizedBox(height: 24),
             const SectionHeader('Scanned image'),
-            _Panels(thumbnails: record.thumbnails),
+            _Panels(thumbnails: thumbnails),
           ],
-          if (record.serverMock) ...[
+          if (row.mock) ...[
             const SizedBox(height: 20),
             _MockNote(),
           ],
@@ -89,10 +327,12 @@ class _ReportBody extends StatelessWidget {
         VerdictBanner(report: r),
         const SizedBox(height: 20),
         _TallyStrip(summary: r.summary),
-        if (record.thumbnails.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        _MetaCard(row: row),
+        if (thumbnails.isNotEmpty) ...[
           const SizedBox(height: 24),
           const SectionHeader('Scanned panels'),
-          _Panels(thumbnails: record.thumbnails),
+          _Panels(thumbnails: thumbnails),
         ],
         const SizedBox(height: 24),
         SectionHeader(
@@ -124,11 +364,85 @@ class _ReportBody extends StatelessWidget {
           const SizedBox(height: 10),
           _ReferenceList(standards: r.referenceStandards),
         ],
-        if (record.serverMock) ...[
+        if (row.mock) ...[
           const SizedBox(height: 20),
           _MockNote(),
         ],
       ],
+    );
+  }
+}
+
+/// Product, place, time, note, and whether the server holds this record.
+///
+/// The last of those is the point: an unfiled scan cannot be shared or produced
+/// later, and saying so here is kinder than a share button that 404s.
+class _MetaCard extends StatelessWidget {
+  const _MetaCard({required this.row});
+  final SavedScan row;
+
+  @override
+  Widget build(BuildContext context) {
+    final at = row.capturedAt;
+    final lines = <List<String>>[
+      ['Product', row.title],
+      if ((row.location ?? '').trim().isNotEmpty) ['Place', row.location!.trim()],
+      ['Inspected', at == null ? '—' : DateFormat('d MMM y, h:mm a').format(at)],
+      ['Category', prettyCategory(row.category)],
+      if ((row.note ?? '').trim().isNotEmpty) ['Note', row.note!.trim()],
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Palette.card,
+        borderRadius: BorderRadius.circular(16),
+        border: const Border.fromBorderSide(BorderSide(color: Palette.hairline)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final line in lines) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 84,
+                  child: Text(line[0].toUpperCase(),
+                      style: LabelJaanoTheme.eyebrow()),
+                ),
+                Expanded(
+                  child: Text(line[1],
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(fontSize: 13.5)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Icon(row.filed ? Icons.lock_outline_rounded : Icons.smartphone_rounded,
+                  size: 15, color: row.filed ? Palette.green : Palette.amber),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  row.filed
+                      ? 'Filed on the server — retrievable and shareable.'
+                      : 'Not filed — this scan lives on this device only, and is '
+                          'gone when the app closes.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(fontSize: 11.5, color: Palette.muted),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

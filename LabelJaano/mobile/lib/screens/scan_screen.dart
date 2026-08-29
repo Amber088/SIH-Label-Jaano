@@ -9,6 +9,7 @@ import '../core/theme.dart';
 import '../models/scan_record.dart';
 import '../services/api_client.dart';
 import '../services/scan_store.dart';
+import '../services/session.dart';
 import '../services/settings.dart';
 import '../widgets/brand.dart';
 import '../widgets/common.dart';
@@ -44,20 +45,29 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
-  final ApiClient _api = ApiClient();
   final ImagePicker _picker = ImagePicker();
   final TextEditingController _note = TextEditingController();
+  final TextEditingController _product = TextEditingController();
+  final TextEditingController _location = TextEditingController();
 
   _Picked? _front;
   _Picked? _back;
   String _category = '';
   bool _useSampleCalibration = false;
+
+  /// Whether to file this inspection on the server. Only meaningful when signed
+  /// in; an officer occasionally wants a verdict without adding a row to the
+  /// record, e.g. re-scanning the same package to check a retake.
+  bool _file = true;
   bool _busy = false;
 
   @override
   void dispose() {
-    _api.dispose();
+    // The HTTP client belongs to the provider graph, which disposes it — closing
+    // it here would break every other screen that shares it.
     _note.dispose();
+    _product.dispose();
+    _location.dispose();
     super.dispose();
   }
 
@@ -125,6 +135,8 @@ class _ScanScreenState extends State<ScanScreen> {
     }
     final settings = context.read<Settings>();
     final store = context.read<ScanStore>();
+    final session = context.read<Session>();
+    final api = context.read<ApiClient>();
 
     setState(() => _busy = true);
     try {
@@ -132,30 +144,57 @@ class _ScanScreenState extends State<ScanScreen> {
         LabelImage(_front!.bytes, _front!.filename),
         if (_back != null) LabelImage(_back!.bytes, _back!.filename),
       ];
-      final report = await _api.scanImage(
+      final outcome = await api.scanImage(
         baseUrl: settings.baseUrl,
         images: images,
+        // Anonymous scanning is a supported mode, not a degraded one: a null
+        // token gets the same verdict, the server just files nothing.
+        token: session.token,
         category: _category,
         serverMock: settings.serverMock,
         reference: _useSampleCalibration ? kSampleCalibration : null,
+        productName: _product.text,
+        note: _note.text,
+        location: _location.text,
+        save: session.isSignedIn ? _file : null,
       );
 
       final record = ScanRecord(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        // When the server filed it, adopt its id so the local copy and the
+        // server row are the same inspection everywhere downstream — otherwise
+        // the next sync would show the scan twice.
+        id: outcome.scanId ?? DateTime.now().microsecondsSinceEpoch.toString(),
         capturedAt: DateTime.now(),
-        report: report,
+        report: outcome.report,
         thumbnails: [_front!.bytes, if (_back != null) _back!.bytes],
-        note: _note.text.trim().isEmpty ? null : _note.text.trim(),
-        serverMock: settings.serverMock,
+        note: _trimmedOrNull(_note.text),
+        // What the *server* actually did, not what we asked for. It may fall back
+        // to the mock on its own (no API key, deps missing), and a canned verdict
+        // must never be presented as a live read of this photo.
+        serverMock: outcome.extractionMock,
+        serverId: outcome.scanId,
+        productName: _trimmedOrNull(_product.text),
+        location: _trimmedOrNull(_location.text),
+        ownerId: session.account?.id,
       );
       store.add(record);
 
       if (!mounted) return;
+      // Asked for a live read and got a canned one: say so now, while the photo
+      // is still in mind, rather than letting the verdict stand unqualified.
+      if (outcome.extractionMock && !settings.serverMock) {
+        _toast('Extraction fell back to the offline mock — '
+            '${outcome.extractionReason.isEmpty ? "see the report" : outcome.extractionReason}');
+      } else if (session.isSignedIn && _file && !outcome.saved) {
+        _toast('Verdict ready, but the server did not file it — '
+            'it stays on this device only.');
+      }
       // Reset the form for the next package.
       setState(() {
         _front = null;
         _back = null;
         _note.clear();
+        _product.clear();
         _useSampleCalibration = false;
       });
       widget.onDone();
@@ -169,6 +208,14 @@ class _ScanScreenState extends State<ScanScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Location is deliberately *not* cleared between scans: an inspector works a
+  /// shop at a time, and retyping the same shop for every package is the kind of
+  /// friction that ends with the field left empty.
+  static String? _trimmedOrNull(String raw) {
+    final v = raw.trim();
+    return v.isEmpty ? null : v;
   }
 
   void _toast(String msg) =>
@@ -200,6 +247,7 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<Settings>();
+    final session = context.watch<Session>();
 
     return Stack(
       children: [
@@ -236,7 +284,7 @@ class _ScanScreenState extends State<ScanScreen> {
               onClear: _back == null ? null : () => setState(() => _back = null),
             ),
             const SizedBox(height: 20),
-            _options(settings),
+            _options(settings, session),
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: _busy ? null : _runScan,
@@ -252,6 +300,14 @@ class _ScanScreenState extends State<ScanScreen> {
                 style: LabelJaanoTheme.readout(size: 11, color: Palette.faint),
               ),
             ),
+            const SizedBox(height: 4),
+            Center(
+              child: Text(
+                _filingLine(session),
+                textAlign: TextAlign.center,
+                style: LabelJaanoTheme.readout(size: 11, color: Palette.faint),
+              ),
+            ),
           ],
         ),
         if (_busy) _ScanningOverlay(mock: settings.serverMock),
@@ -259,7 +315,18 @@ class _ScanScreenState extends State<ScanScreen> {
     );
   }
 
-  Widget _options(Settings settings) {
+  /// Say plainly where this scan is going to end up. An inspection nobody can
+  /// retrieve later is worth less than one that is filed, and the difference
+  /// should not be a surprise discovered on the queue tab.
+  String _filingLine(Session session) {
+    if (!session.isSignedIn) {
+      return 'Not signed in · verdict only, kept on this device until you close the app';
+    }
+    if (!_file) return 'Filing off · this scan will not be added to your history';
+    return 'Will be filed to your history as ${session.account?.displayName ?? "you"}';
+  }
+
+  Widget _options(Settings settings, Session session) {
     return Container(
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
@@ -315,11 +382,47 @@ class _ScanScreenState extends State<ScanScreen> {
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12),
               ),
             ),
+            // Only offered when signed in: with no account there is nothing to file
+            // to, and a switch that cannot change the outcome is worse than absent.
+            if (session.isSignedIn)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                activeColor: Palette.brass,
+                value: _file,
+                onChanged: (v) => setState(() => _file = v),
+                title: Text('File to my inspection history',
+                    style: LabelJaanoTheme.display(size: 14, weight: FontWeight.w600)),
+                subtitle: Text(
+                  'Off gives you the verdict without adding a row to the record — '
+                  'useful when re-shooting the same package.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12),
+                ),
+              ),
+            const SizedBox(height: 4),
+            TextField(
+              controller: _product,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Product (optional)',
+                hintText: 'What is on the label — heads the history row',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _location,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Place of inspection (optional)',
+                hintText: 'Shop / market — kept between scans',
+              ),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _note,
+              maxLines: 2,
               decoration: const InputDecoration(
                 labelText: 'Note (optional)',
-                hintText: 'Shop name / location',
+                hintText: 'Remarks recorded with the inspection',
               ),
             ),
           ],

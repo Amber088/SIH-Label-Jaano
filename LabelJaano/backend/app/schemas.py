@@ -144,3 +144,192 @@ class PackInfo(BaseModel):
     scope: str
     applies_when: dict[str, Any]
     declarations: int
+
+
+# --------------------------------------------------------------------------- #
+# Accounts
+# --------------------------------------------------------------------------- #
+class UserOut(BaseModel):
+    """Public shape of an account. Mirrors ``store.users.User.to_dict()`` — which
+    has no ``password_hash`` field at all, so a verifier cannot leak through here
+    even by accident."""
+    id: str
+    email: str
+    name: str = ""
+    role: str
+    role_label: str
+    created_at: str
+    disabled: bool = False
+
+
+class SignupRequest(BaseModel):
+    email: str = Field(..., description="login identifier; stored lower-cased")
+    password: str = Field(..., description="minimum 8 characters")
+    name: str = ""
+    role: str = Field(
+        "consumer",
+        description="'consumer', or 'officer' together with a valid officer_code. "
+                    "'admin' is never obtainable here — see manage.py.",
+    )
+    officer_code: Optional[str] = Field(
+        None,
+        description="shared enrolment code (LABEL_JAANO_OFFICER_CODE) required to "
+                    "register as an officer",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"email": "inspector@lm.gov.in", "password": "correct-horse-battery",
+                 "name": "A. Jain", "role": "officer", "officer_code": "demo-code"}
+            ]
+        }
+    }
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(..., description="token lifetime in seconds")
+    user: UserOut
+
+
+class AuthConfigOut(BaseModel):
+    """What the sign-up screen needs to know before it renders.
+
+    Lets the app hide the officer option (and its code field) on a server where
+    officer sign-up is switched off, instead of offering a choice that will 403.
+    """
+    accounts_available: bool
+    officer_signup_enabled: bool
+    min_password_length: int
+    ephemeral_secret: bool = Field(
+        ...,
+        description="true when LABEL_JAANO_SECRET is unset, so tokens are signed with "
+                    "a per-process key and every restart invalidates all sessions",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Scan history
+# --------------------------------------------------------------------------- #
+class ScanSummaryOut(BaseModel):
+    """One stored inspection without its full report — the list-view shape.
+
+    ``summary`` carries the same keys as ``ReportOut.summary`` so the client can
+    reuse one parser for a live report and a history row.
+    """
+    id: str
+    created_at: str
+    user_id: Optional[str] = None
+    verdict: str
+    score: float
+    category: str
+    packs_applied: list[str] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    source: str = "json"
+    mock: bool = False
+    product_name: Optional[str] = None
+    note: Optional[str] = None
+    location: Optional[str] = None
+
+
+class ScanDetailOut(ScanSummaryOut):
+    """A stored inspection plus the verbatim report that was shown at the time."""
+    report: Optional[dict[str, Any]] = None
+    scan_input: Optional[dict[str, Any]] = None
+
+
+class ScanListOut(BaseModel):
+    items: list[ScanSummaryOut]
+    total: int = Field(..., description="matching rows before limit/offset")
+    limit: int
+    offset: int
+    scope: str = Field(..., description="'own' or 'all' — which corpus was searched")
+
+
+class ExtractionProvenanceOut(BaseModel):
+    """How the label values in this report were actually obtained.
+
+    Present because the offline fallback is silent by default: with no
+    ``GEMINI_API_KEY`` configured, field extraction returns canned values and the
+    engine judges those, so any photo — a book, a brick — can come back compliant.
+    ``mock`` is true when *any* stage ran offline, and ``reason`` says which and why,
+    so a client can put a warning on screen instead of presenting fiction as a finding.
+    """
+    mock: bool
+    ocr_mock: bool
+    gemini_mock: bool
+    reason: str
+
+
+class SavedReportOut(ReportOut):
+    """A live report, plus the id it was filed under when the caller is signed in.
+
+    ``scan_id`` is null for an anonymous scan: the verdict is returned but nothing
+    was written, so there is no record to fetch or export later.
+    """
+    scan_id: Optional[str] = None
+    saved: bool = False
+    extraction: Optional[ExtractionProvenanceOut] = Field(
+        None,
+        description="how the values were obtained; set by the image endpoints, which "
+                    "are the ones that can silently fall back to a mock read",
+    )
+
+
+class ReportLinkOut(BaseModel):
+    """A short-lived link that renders one stored report without a login.
+
+    ``path`` is relative on purpose. A server behind a reverse proxy or an ngrok
+    tunnel does not reliably know the origin the client reached it on — ``Host`` and
+    ``X-Forwarded-*`` are attacker-influenced headers — so inventing an absolute URL
+    here would sometimes be wrong and would be a redirect-shaped footgun. The client
+    already knows the base address it dialled; it joins the two.
+
+    ``ticket`` is exposed separately for clients that would rather build the request
+    themselves. See :mod:`auth.tickets` for what it can and cannot do — it is scoped
+    to this one inspection, expires in minutes, and is rejected everywhere a session
+    token is expected.
+    """
+    scan_id: str
+    path: str = Field(..., description="append to your API base URL, e.g. /scans/<id>/report.html?ticket=<t>")
+    ticket: str
+    expires_at: str = Field(..., description="ISO 8601, UTC")
+    expires_in_seconds: int
+
+
+class CategoryStatOut(BaseModel):
+    category: str
+    scans: int
+    average_score: float
+
+
+class TopViolationOut(BaseModel):
+    declaration_id: str
+    declaration_label: str
+    legal_reference: str
+    severity: str
+    occurrences: int = Field(..., description="failed checks (one label can fail several)")
+    scans_affected: int = Field(..., description="distinct products in breach")
+
+
+class StatsOut(BaseModel):
+    """Dashboard aggregates. ``no_label_detected`` reads are excluded from
+    ``average_score`` and ``compliance_rate`` — a photo that was not a label at all
+    is not a product scoring zero."""
+    total_scans: int
+    scored_scans: int
+    by_verdict: dict[str, int]
+    average_score: float
+    compliance_rate: float
+    violations_by_severity: dict[str, int]
+    violations_total: int
+    by_category: list[CategoryStatOut] = Field(default_factory=list)
+    top_violations: list[TopViolationOut] = Field(default_factory=list)
+    scope: str = Field(..., description="'own' or 'all'")

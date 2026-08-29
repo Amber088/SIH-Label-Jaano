@@ -15,7 +15,11 @@ calibration, and fusion merges them (across front/back images) into the scan-inp
 contract. Every heavy dependency is lazy-loaded; pass ``mock=True`` to run the whole
 thing with zero external deps or API keys (deterministic fixtures) for tests/demos.
 """
-from .pipeline import extract_scan_input, extract_and_evaluate  # noqa: F401
+from .pipeline import (  # noqa: F401
+    extract_and_evaluate,
+    extract_scan_input,
+    resolve_mock_mode,
+)
 from .types import (  # noqa: F401
     CalibrationResult,
     GeminiExtraction,
@@ -27,6 +31,7 @@ from .types import (  # noqa: F401
 __all__ = [
     "extract_scan_input",
     "extract_and_evaluate",
+    "resolve_mock_mode",
     "OcrWord",
     "OcrResult",
     "GeminiField",

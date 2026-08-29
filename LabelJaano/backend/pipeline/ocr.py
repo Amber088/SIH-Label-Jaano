@@ -30,8 +30,15 @@ _PADDLE_SINGLETON = None  # PaddleOCR model is expensive; build once, reuse.
 def run_ocr(image: ImageInput, mock: Optional[bool] = None, lang: str = "en") -> OcrResult:
     """OCR one image into an :class:`OcrResult` of word boxes.
 
-    ``image`` may be a path or raw bytes. ``mock=None`` (default) auto-detects: it uses
-    the mock engine when PaddleOCR is not importable or ``LABEL_JAANO_MOCK`` is set.
+    ``image`` may be a path or raw bytes. ``mock=None`` (default) uses the mock engine
+    when ``LABEL_JAANO_MOCK`` is set, and otherwise attempts the real one.
+
+    Note that a missing PaddleOCR install does *not* silently fall back here — it
+    raises, telling you to install the extras or ask for mock mode explicitly. That is
+    deliberate: silently substituting canned word boxes for a real optical read is how
+    you end up filing a compliance finding about text nobody photographed. Contrast
+    :mod:`pipeline.gemini`, which does fall back when no API key is present; use
+    :func:`pipeline.resolve_mock_mode` to find out what a given run will actually do.
     """
     if mock is None:
         mock = _mock_requested()

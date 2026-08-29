@@ -136,6 +136,30 @@ flowchart TB
 
 **Request lifecycle in one sentence:** the app uploads a label image → the Scan service stores it and enqueues a job → the AI pipeline reads the text and extracts structured declarations → the Rule Engine validates them against the active rule set → results, violations and a compliance score are persisted → the officer sees the verdict and can generate a report; supervisors see it roll up on the dashboard.
 
+### 3.1 Implementation status — what runs today
+
+This document is the design; the repo is the build, and the two have deliberately
+converged. Every capability in the sections below is implemented and tested, with
+three pragmatic substitutions made for the hackathon window. None of them changes the
+architecture — each is a different engine in the same slot.
+
+| Design choice | Implemented as | Why this is honest, not a shortcut |
+|---|---|---|
+| PostgreSQL + SQLAlchemy | **SQLite via `sqlite3`** (stdlib) | The requirements say "repository of scanned products and inspection history," not "Postgres." SQLite is a real relational database with transactions, WAL, and full-text-friendly `LIKE` search — it serves a single-node demo box with zero install. `store/` is the only module that talks to it; moving to Postgres later touches one file, not the system. |
+| JWT via python-jose + passlib/bcrypt | **Hand-rolled HMAC-SHA256 tokens + PBKDF2-HMAC-SHA256 passwords** (stdlib) | Two purpose-scoped token kinds (`api` sessions, 12 h; `report` share tickets, 15 min) with role + scope claims, constant-time verification, and revocation-by-disabled-account — the security properties that matter, with no third-party auth dependency to break on a demo stage. |
+| WeasyPrint PDF + python-docx | **Print-ready HTML report** (`reports/inspection_html.py`) | The file an inspector needs is a document they can print. The report is self-contained HTML that renders identically in any browser (Print → Save as PDF gives the PDF), plus an admin CLI that exports it offline. |
+
+What is **also** built, beyond the original design's scope: the two-tier rule model
+(Tier 1 photo-verifiable checks that score; Tier 2 lab-only `reference_standards` that
+can never affect the score), the corpus-wide `/stats` aggregates an officer quotes
+from a dashboard, scoped share links that hand over one report and never the account,
+and a demo seeding CLI (`manage.py seed`) that populates a walkthrough corpus in one
+command.
+
+Coverage today: **8 rule packs** (Legal Metrology 2011 + 7 FSSAI), **18 API routes**,
+**7 test modules / ~200 tests**, backend and Flutter app wired end-to-end. See
+[`backend/README.md`](backend/README.md) for the runbook and the full route table.
+
 ---
 
 ## 4. Recommended Tech Stack
@@ -313,169 +337,151 @@ flowchart TB
 
 ## 8. Data Model
 
-PostgreSQL schema. This directly implements the "repository of scanned products and compliance history" and "attachment of photographs and supporting evidence" requirements.
+SQLite — one file, `backend/data/labeljaano.db`, held with WAL journaling (`sqlite3`,
+stdlib; see `store/db.py`). Schema versioning is a `user_version` pragma plus an
+ordered migration list, so an existing demo database upgrades in place — and the
+denormalised verdict/score/severity columns exist so `/stats` counts in SQL instead
+of deserialising every stored report. This directly implements the "repository of
+scanned products and compliance history" and "attachment of photographs and supporting
+evidence" requirements: the *report* carries the evidence references, and the field
+app keeps the photos (the API deliberately never stores an image — see §10).
 
 ```mermaid
 erDiagram
     USERS ||--o{ SCANS : performs
-    USERS ||--o{ AUDIT_LOG : generates
-    PRODUCTS ||--o{ SCANS : "is scanned in"
-    SCANS ||--o{ DECLARATIONS : extracts
-    SCANS ||--o{ VIOLATIONS : raises
-    SCANS ||--o{ EVIDENCE : has
-    SCANS ||--o| REPORTS : produces
-    RULE_SETS ||--o{ SCANS : "evaluated by"
+    SCANS ||--o{ SCAN_VIOLATIONS : raises
 
     USERS {
-        uuid id PK
+        text id PK
+        string email UK "lower-cased, unique"
         string name
-        string email UK
-        string password_hash
-        enum role "officer|admin|auditor"
-        string region
-        timestamp created_at
-    }
-    PRODUCTS {
-        uuid id PK
-        string name
-        string brand
-        string category
-        string generic_name
-        string barcode
-        timestamp created_at
+        string role "consumer|officer|admin"
+        string password_hash "PBKDF2-HMAC-SHA256"
+        text created_at "ISO-8601 UTC"
+        int disabled "0|1 — disables revoke tokens at once"
     }
     SCANS {
-        uuid id PK
-        uuid product_id FK
-        uuid submitted_by FK
-        enum source "officer|consumer|manufacturer"
-        enum lead_status "n_a|pending_review|verified|dismissed"
-        string image_url
-        float lat
-        float lng
-        enum status "queued|processing|done|failed"
-        enum verdict "compliant|non_compliant|review"
-        float compliance_score
-        string rule_set_version
-        timestamp captured_at
+        text id PK
+        text created_at "ISO-8601 UTC"
+        text user_id FK "NULL = anonymous scan"
+        string verdict "compliant|needs_review|non_compliant|no_label_detected"
+        real score "0–100; NULL-ish 0 for no_label_detected"
+        string category
+        text packs_applied "JSON array of pack ids"
+        int checks_total
+        int passed
+        int failed
+        int skipped
+        int critical
+        int major
+        int minor
+        string source "json|image — where the report came from"
+        int mock "0|1 — offline mock pipeline, or a live read?"
+        string product_name
+        string note
+        string location
+        text report_json "the full ComplianceReport, verbatim — the audit record"
+        text scan_input_json "the normalized label the engine judged"
     }
-    DECLARATIONS {
-        uuid id PK
-        uuid scan_id FK
-        enum type "mrp|net_qty|mfg_date|manufacturer|consumer_care|country|generic_name|unit_price"
-        string raw_text
-        json normalized_value
-        json bbox
-        float font_height_mm
-        float confidence
-    }
-    VIOLATIONS {
-        uuid id PK
-        uuid scan_id FK
-        string rule_id
-        string declaration_type
-        enum severity "critical|major|minor"
+    SCAN_VIOLATIONS {
+        text scan_id FK "cascade delete"
+        string declaration_id
+        string declaration_label
         string legal_reference
+        string severity "critical|major|minor"
+        string check_type
         string message
-        enum status "open|resolved|dismissed"
-    }
-    EVIDENCE {
-        uuid id PK
-        uuid scan_id FK
-        string file_url
-        string caption
-        uuid uploaded_by FK
-        timestamp uploaded_at
-    }
-    REPORTS {
-        uuid id PK
-        uuid scan_id FK
-        string pdf_url
-        string docx_url
-        uuid generated_by FK
-        timestamp generated_at
-    }
-    RULE_SETS {
-        uuid id PK
-        string version
-        date effective_date
-        json definition
-        boolean active
-    }
-    AUDIT_LOG {
-        uuid id PK
-        uuid user_id FK
-        string action
-        string entity
-        uuid entity_id
-        json meta
-        timestamp created_at
     }
 ```
+
+One deliberate absence: there is no `products` table and no `audit_log`. The system
+keys on *inspections*, and a product's history is the set of inspections whose
+`product_name` matches — the fluid entity in the 2011 Rules' world is the package,
+not the SKU, and a barcode-keyed product table would force a decision about merging
+scans that the field cannot actually make. The report itself is the audit record
+(`report_json` is immutable-by-practice: nothing in the API rewrites a filed scan).
 
 ---
 
 ## 9. API Design
 
-REST over HTTPS, JSON payloads, JWT bearer auth. FastAPI auto-publishes interactive Swagger docs at `/docs` — great for the demo. Key endpoints:
+REST over HTTP, JSON payloads, bearer-token auth (a purpose-scoped HMAC token rather
+than an off-the-shelf JWT library — see §12). FastAPI auto-publishes interactive
+Swagger docs at `/docs`. The full route table with auth requirements lives in
+[`backend/README.md`](backend/README.md); the shape of it:
 
 **Auth & Users**
-- `POST /auth/login` · `POST /auth/refresh` · `GET /auth/me`
-- `POST /users` *(admin)* · `GET /users` · `PATCH /users/{id}`
+- `GET /auth/config` · `POST /auth/register` · `POST /auth/login` · `GET /auth/me` · `POST /auth/refresh`
 
 **Scanning & Results**
-- `POST /scans` — multipart image upload; creates scan, enqueues pipeline, returns `scan_id`
-- `GET /scans/{id}` — status + verdict + score
-- `GET /scans/{id}/declarations` — extracted fields with bboxes, confidence, font_height_mm
-- `PATCH /declarations/{id}` — officer correction (logged)
-- `GET /scans/{id}/violations` · `PATCH /violations/{id}` — update status (resolve/dismiss)
-- `POST /scans/{id}/reprocess` — re-run pipeline (e.g., after better photo)
-- `POST /scans` with `source=consumer` creates a **citizen lead**; `GET /leads` *(officer)* lists pending leads; `PATCH /scans/{id}/verify` verifies/dismisses a lead *(stretch — consumer mode)*
+- `POST /scan/image` — photo(s) → `ComplianceReport` in one call; with a bearer token the scan is **filed** and a `scan_id` comes back, without one you get the verdict and nothing is recorded
+- `POST /scan` · `POST /extract` — normalize-then-judge split, for non-mobile clients
+
+**History, Repository & Search**
+- `GET /scans` — filtered (`verdict`, `category`, `search`), paged (`limit`/`offset`); scope decided by the server: an officer gets the whole corpus, a consumer their own — and the payload says which, so the client never has to guess
+- `GET /scans/{id}` · `DELETE /scans/{id}` — detail (with the report body) and delete; another account's record answers **404**, not 403
+- `GET /stats` — corpus aggregates, incl. corpus-wide `top_violations` (the "which declaration do sellers breach most often" answer, computed as a GROUP BY)
 
 **Evidence & Reports**
-- `POST /scans/{id}/evidence` — attach supporting photos
-- `POST /scans/{id}/report?format=pdf|docx` — generate report
-- `GET /reports/{id}`
+- `POST /scans/{id}/share` — mint a short-lived link to this one report (`?minutes=`, default 15, max 120)
+- `GET /scans/{id}/report.html` — print-ready inspection report; opens with a bearer token *or* the scoped share ticket, and a broken bearer is an error rather than a silent downgrade to link-holder access
 
-**Repository & Search**
-- `GET /products?q=&category=&brand=` — full-text search
-- `GET /products/{id}` · `GET /products/{id}/history`
-- `GET /scans?officer=&region=&verdict=&from=&to=` — filtered history
+**Rule Sets**
+- `GET /rulepacks` · `GET /rulepacks/{id}` · `POST /reload` — audit and hot-apply rule packs without restarting
 
-**Rule Sets** *(admin)*
-- `GET /rule-sets` · `GET /rule-sets/active` · `POST /rule-sets` · `PATCH /rule-sets/{id}/activate`
+**Admin** — `manage.py` (not HTTP): `createuser`, `role`, `disable`, `passwd`, `scans`,
+`stats`, `report`, `delete-scan`, `seed`, `secret`.
 
-**Dashboard / Analytics**
-- `GET /dashboard/summary` — totals, compliance rate, today's scans
-- `GET /dashboard/trends?window=30d` — time series
-- `GET /dashboard/violations-by-type` — breakdown for charts
 
 ---
 
 ## 10. Mobile App Architecture
 
-Flutter, structured for clarity and offline resilience.
+Flutter, structured for clarity and honesty — the app never claims the server knows
+something it does not.
 
-- **State management:** Riverpod (or Bloc) — testable, scalable.
-- **Networking:** Dio with JWT interceptor + retry.
-- **Local store:** Hive/sqflite — **offline scan queue** (capture now, upload when online) and cached results.
-- **Camera:** `camera` + `image_cropper` with an on-screen framing guide and a calibration-card prompt.
-- **Key screens:** Login → Home/My Inspections → **Capture** (with guide overlay) → Processing → **Result** (declaration checklist ✅/❌ with bboxes overlaid on the image, confidence, edit) → Evidence attach → Generate report → History/Search.
+- **State management:** `provider` (ChangeNotifier) — four providers in a strict order
+  that is load-bearing, not stylistic: `Settings` → `ApiClient` → `Session` →
+  `ScanStore`. Each provider only reads backwards in that list, and the server address
+  is passed as a **closure, not a string**, so changing it in Settings takes effect on
+  the very next request.
+- **Networking:** `http` (multipart for photos), one `ApiClient`, owned and disposed by
+  the provider graph — screens never construct their own.
+- **Local store:** in-memory only, by design. A bearer token in `SharedPreferences`
+  would be plaintext on disk, so the session lives in memory and the server
+  re-hydrates it on re-login; local `ScanRecord`s exist for one session and are kept
+  because they hold the **photos** (the API never stores an image).
+- **One row type:** the queue and the dashboard consume `SavedScan` whether signed in
+  or not — anonymous mode is not a second, less-tested rendering path, it is the same
+  path with `filed: false`. Local scans are merged with server rows by id so a scan
+  just taken never double-counts.
+- **Session lifecycle:** every 401 funnels through `Session.handleFailure`, so the app
+  can never be half-signed-in; app resume sequences `refreshIfNeeded()` then
+  `revalidate()` (run in parallel, the slower one would restore the token the other
+  had just replaced); a session that ends by itself is announced with *why* and the
+  queue is reset, because the rows on screen belonged to that session.
+- **Key screens:** Shell (Dashboard · Scan · Queue · Settings, kept alive in an
+  `IndexedStack` so a half-filled scan form survives a tab switch) → **Capture**
+  (front/back panel slots, category, calibration, mock toggle) → **Result** (verdict
+  banner, declaration checklist, violation list, share-copy report link, export) →
+  **Queue** (filter by verdict, server-side search, owner labels on an officer's
+  queue) → **Dashboard** (aggregates; server `/stats` when signed in, device-local
+  honest fallback when not).
 
 ```
 lib/
-  core/         # theme, config, api client, auth interceptor
-  features/
-    auth/       # login, token storage
-    scan/       # camera, upload, offline queue
-    result/     # verdict, declarations, violations, overrides
-    evidence/   # capture & attach
-    reports/    # generate & view PDF/DOCX
-    history/    # repository search
-  shared/       # widgets, models, utils
+  core/         # theme, config (server address, categories), LabelJaanoTheme
+  models/       # ComplianceReport, SavedScan, ScanRecord, Account, AuthSession
+  services/     # ApiClient, Session, ScanStore, Settings
+  screens/      # home_shell, dashboard, scan, queue, report, settings, sign_in
+  widgets/      # charts (donut/severity), verdict banner, scan tile, stat cards, brand
 ```
 
-The result screen overlaying pass/fail directly on the label image (with bounding boxes) is the **money shot for the demo** — it makes the AI visible and trustworthy.
+The result screen overlaying pass/fail directly on the label image (with bounding
+boxes) is the **money shot for the demo** — it makes the AI visible and trustworthy.
+The report screen also prints the honest provenance line (live read vs offline mock)
+so a canned demo verdict is never mistaken for a real model read — the single most
+important flag in the whole app.
 
 ---
 
@@ -504,18 +510,35 @@ src/
 
 ## 12. Security, Auth & RBAC
 
-- **Authentication:** JWT (OAuth2 password flow). Short-lived access token + refresh token. Passwords hashed with bcrypt.
+- **Authentication:** purpose-scoped HMAC-SHA256 tokens (HS256-shaped), signed with
+  `LABEL_JAANO_SECRET`. Two kinds, and the payload signing them says which: `api`
+  sessions (12 h — one inspection shift) that work everywhere, and `report` share
+  tickets (15 min default, scan-bound) that work on exactly one `report.html` URL and
+  are **refused anywhere a session token is expected** — so forwarding a share link
+  hands over one report, never the account. Passwords are PBKDF2-HMAC-SHA256 with a
+  per-user salt and constant-time comparison; tokens die with a disabled account
+  (the store checks `disabled` on every validation, not just at issue).
 - **Authorization (RBAC):** enforced at the API with dependency guards.
 
-| Role | Scan | View own | View all | Manage rules | Manage users | Export |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| **Officer** | ✅ | ✅ | — | — | — | ✅ (own) |
-| **Supervisor / Admin** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Auditor** | — | — | ✅ (read-only) | — | — | ✅ |
-| **Consumer** *(stretch)* | ✅ | ✅ (own) | — | — | — | — |
+| Role | Scan | View own | View all | Share a report | Manage accounts |
+|---|:--:|:--:|:--:|:--:|:--:|
+| **Officer** | ✅ | ✅ | ✅ | ✅ (anything they can read) | — |
+| **Admin** | ✅ | ✅ | ✅ | ✅ | ✅ (via `manage.py`) |
+| **Consumer** | ✅ | ✅ | — | ✅ (own only) | — |
 
-- **Data protection:** HTTPS everywhere; signed, expiring URLs for images/evidence; input validation via Pydantic; rate limiting on auth.
-- **Audit trail:** every state change (declaration override, violation dismissal, rule-set activation) is written to `audit_log` — essential for enforcement credibility.
+An officer's *queue* spans the whole corpus; `/scans` and `/stats` report the scope
+they actually searched (`own`/`all`) so the client can say whose records it is
+showing instead of inferring from the role. Another account's inspection answers
+**404, not 403** — a consumer cannot use error codes to map out what exists.
+
+- **Data protection:** the server never stores label images (the phone keeps them);
+  share links are short-lived, scoped, and parameterised through the same access
+  logic as the API; input validation via Pydantic; `LABEL_JAANO_NO_DB=1` gives a
+  read-only demo box whose auth endpoints answer 503 *honestly* rather than pretending.
+- **Admin surface:** deliberately a CLI (`manage.py`) not an HTTP page — the only
+  account-creation path for `admin`, plus role changes, disable (instant token
+  revocation), password reset, and demo seeding. A demo stage has no business on a
+  user-management HTTP API.
 
 ---
 

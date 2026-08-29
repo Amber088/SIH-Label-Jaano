@@ -7,9 +7,12 @@ and a list of violations that each cite their exact legal reference.
 
 The **engine** is **pure Python standard library** — no dependencies to install
 before you can run it. A thin **FastAPI layer** (`app/`) wraps it for HTTP; that layer
-is the only part that needs `pip install`. The database and OCR/vision services plug in
-later (see `../ARCHITECTURE.md`); keeping the engine dependency-free keeps it trivially
-testable and portable.
+is the only part that needs `pip install`. So is everything added around it: accounts,
+inspection history, and the print-ready report are all stdlib too (`sqlite3`, `hmac`,
+`hashlib`, `html`), so the whole service still installs with nothing but FastAPI and
+uvicorn. Only the OCR/vision pipeline has heavy optional deps, and they are imported
+lazily — see `../ARCHITECTURE.md`.
+
 
 ## Layout
 
@@ -31,7 +34,23 @@ backend/
 │   └── types.py      # pure-stdlib dataclasses shared across the pipeline
 ├── app/                  # the HTTP API — FastAPI wrapper around the engine
 │   ├── schemas.py    # pydantic request/response models (Swagger docs)
-│   └── main.py       # endpoints: /scan /extract /scan/image /health /rulepacks /reload
+│   ├── deps.py       # shared dependencies: current account, role gates, DB gate
+│   ├── main.py       # meta + rulepack + scan endpoints
+│   └── routers/
+│       ├── auth_routes.py  # /auth/config /register /login /me /refresh
+│       └── history.py      # /scans… /stats + the shareable report link
+├── auth/                 # accounts and tokens — stdlib only
+│   ├── passwords.py  # PBKDF2-HMAC-SHA256 hashing, constant-time verify
+│   ├── tokens.py     # HS256 JWT-shaped session tokens (purpose "api")
+│   ├── tickets.py    # short-lived share tickets (purpose "report"), scan-scoped
+│   ├── roles.py      # consumer / officer / admin and what each may see
+│   └── registration.py     # who may self-register as an officer (enrolment code)
+├── store/                # persistence — sqlite3, no ORM
+│   ├── db.py         # connection, schema, migrations, WAL, path resolution
+│   ├── users.py      # account CRUD
+│   └── scans.py      # filed inspections, filtered listing, corpus aggregates
+├── reports/
+│   └── inspection_html.py  # print-ready inspection report (stdlib templating)
 ├── samples/
 │   ├── good_label.json   # a compliant packaged-food label (scan-input JSON)
 │   ├── bad_label.json    # a deliberately non-compliant one
@@ -40,11 +59,17 @@ backend/
 │   └── make_fixtures.py  # regenerates the demo photos + sidecars
 ├── tests/
 │   ├── test_engine.py    # engine end-to-end + unit tests (no deps)
+│   ├── test_two_tier.py  # scored checks vs lab-only reference standards
 │   ├── test_pipeline.py  # pipeline end-to-end + unit tests (mock, no deps)
+│   ├── test_store.py     # schema, migrations, listing, aggregates (no deps)
+│   ├── test_auth.py      # hashing, tokens, tickets, roles (no deps)
+│   ├── test_reports.py   # the HTML report renderer (no deps)
 │   └── test_api.py       # API tests via TestClient
+├── manage.py             # admin CLI: accounts, roles, history, reports, demo seed
 ├── extract.py            # CLI: photo(s) -> scan-input (and optionally a verdict)
 └── run_scan.py           # CLI: scan-input JSON -> verdict
 ```
+
 
 ## Run it
 
@@ -79,15 +104,32 @@ uvicorn app.main:app --reload --reload-dir app --reload-dir rule_engine   # http
 
 Interactive Swagger docs (try requests in the browser): **http://127.0.0.1:8000/docs**
 
-| Method | Path              | Purpose                                                    |
-|--------|-------------------|------------------------------------------------------------|
-| GET    | `/health`         | liveness + how many packs are loaded                       |
-| GET    | `/rulepacks`      | summary of every loaded rule pack                          |
-| GET    | `/rulepacks/{id}` | full raw JSON of one pack (audit exactly what's enforced)  |
-| POST   | `/scan`           | judge one normalized label (JSON) → `ComplianceReport`     |
-| POST   | `/extract`        | label **photo(s)** → normalized scan-input JSON            |
-| POST   | `/scan/image`     | label **photo(s)** → `ComplianceReport` (extract + judge)  |
-| POST   | `/reload`         | re-read `rulepacks/` from disk — hot-apply a gazette update |
+| Method | Path              | Auth | Purpose                                               |
+|--------|-------------------|------|-------------------------------------------------------|
+| GET    | `/health`         | —    | liveness, packs loaded, whether history is available  |
+| GET    | `/rulepacks`      | —    | summary of every loaded rule pack                     |
+| GET    | `/rulepacks/{id}` | —    | full raw JSON of one pack (audit what's enforced)     |
+| POST   | `/scan`           | opt. | judge one normalized label (JSON) → `ComplianceReport`|
+| POST   | `/extract`        | —    | label **photo(s)** → normalized scan-input JSON       |
+| POST   | `/scan/image`     | opt. | label **photo(s)** → `ComplianceReport` (extract+judge)|
+| POST   | `/reload`         | —    | re-read `rulepacks/` — hot-apply a gazette update     |
+| GET    | `/auth/config`    | —    | what this server accepts at sign-up (draw the form)   |
+| POST   | `/auth/register`  | —    | create an account → token (201)                       |
+| POST   | `/auth/login`     | —    | email + password → token                              |
+| GET    | `/auth/me`        | ✔    | the signed-in account                                 |
+| POST   | `/auth/refresh`   | ✔    | slide an active session forward                       |
+| GET    | `/scans`          | ✔    | inspection history, filtered + paged (scope by role)  |
+| GET    | `/scans/{id}`     | ✔    | one filed inspection, report body included            |
+| DELETE | `/scans/{id}`     | ✔    | delete one filed inspection (204)                     |
+| POST   | `/scans/{id}/share` | ✔  | mint a short-lived link to this one report            |
+| GET    | `/scans/{id}/report.html` | ticket | print-ready inspection report (opens in a browser) |
+| GET    | `/stats`          | ✔    | corpus aggregates incl. corpus-wide `top_violations`  |
+
+“Auth” above: **✔** needs a bearer session token, **opt.** works either way (with a
+token the scan is filed and a `scan_id` comes back; without one you still get the
+verdict and nothing is recorded), **ticket** takes the scoped ticket minted by
+`/share` *instead of* a session token — see [Sharing a report](#sharing-a-report).
+
 
 ```bash
 # health
@@ -189,6 +231,115 @@ Both accept repeated `images=@...` parts plus optional `reference`, `context`,
 `category`, and `mock` form fields. Omit `mock` in production and the server
 auto-detects: real models if the deps + key are present, mock otherwise.
 
+## Accounts, history and reports
+
+An inspection nobody can retrieve later is worth very little, so the API also files
+what it judged. This half is **stdlib too** — `sqlite3` for storage, `hmac`/`hashlib`
+for passwords and tokens, `html` for the report — which is why `requirements.txt` did
+not grow a single line to gain accounts, history, role-scoped queries and a
+print-ready report.
+
+### Turn it on
+
+Nothing to do: the database is created on first use at `data/labeljaano.db`. To do it
+deliberately, or to make the first admin (the one role sign-up can never grant itself):
+
+```bash
+cd backend
+python3 manage.py init                                  # create/upgrade the schema
+python3 manage.py createuser --email you@gov.in --role admin --password-stdin
+python3 manage.py seed                                  # optional demo corpus
+```
+
+Then sign in over HTTP and use the token:
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/auth/login \
+        -H "Content-Type: application/json" \
+        -d '{"email":"you@gov.in","password":"..."}' | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+
+# scan and file in one call — same endpoint, now with a token
+curl -s -X POST http://127.0.0.1:8000/scan/image -H "Authorization: Bearer $TOKEN" \
+     -F "images=@samples/label_front.png" -F "mock=true" \
+     -F "product_name=Parle-G 100g" -F "location=Pune, MH"
+
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/scans
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/stats
+```
+
+### Roles
+
+| Role       | Sees                       | Granted by                                    |
+|------------|----------------------------|-----------------------------------------------|
+| `consumer` | their own inspections      | open sign-up (the default)                    |
+| `officer`  | **every** filed inspection | sign-up **with** the shared enrolment code    |
+| `admin`    | every filed inspection     | `manage.py createuser` / `manage.py role` only|
+
+`/scans` and `/stats` report the scope they actually searched (`"own"` / `"all"`), so
+the client states whose records it is showing rather than inferring it from the role.
+Another account's inspection answers **404**, not 403 — a consumer cannot use error
+codes to discover that a record exists.
+
+### Sharing a report
+
+A phone cannot print, and a browser address bar cannot send an `Authorization`
+header. `POST /scans/{id}/share` therefore mints a **separate, weaker credential**: a
+ticket bound to that one inspection, valid 15 minutes by default (`?minutes=`, max
+120), refused anywhere a session token is expected, and dead the moment the account is
+disabled. Forwarding the link hands over one report, never the account.
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+     "http://127.0.0.1:8000/scans/$SCAN_ID/share?minutes=30"
+# -> {"scan_id":"…","path":"/scans/<id>/report.html?ticket=<ticket>",
+#     "ticket":"…","expires_at":"2026-08-29T12:34:56Z","expires_in_seconds":1800}
+```
+
+Open that URL in a browser and print to PDF. `manage.py report <scan_id> -o out.html`
+renders the same document offline.
+
+### Environment
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `LABEL_JAANO_DB` | `backend/data/labeljaano.db` | where the SQLite file lives |
+| `LABEL_JAANO_SECRET` | per-process random | token signing key. **Set it in production** — leaving it unset means every restart signs everyone out. `/health` and `/auth/config` advertise which mode you are in, so the omission is visible rather than silent. `manage.py secret` prints a good value. |
+| `LABEL_JAANO_OFFICER_CODE` | unset | shared enrolment code that lets sign-up choose `officer`. Unset ⇒ nobody can self-register as an officer; use `manage.py role`. |
+| `LABEL_JAANO_NO_DB` | unset | `1` runs the API as a pure stateless judge: no database file, accounts and history return **503**, and scanning is completely unaffected. This is the read-only demo mode. |
+| `LABEL_JAANO_MOCK` | unset | `1` forces the offline extraction mock (see above) |
+| `LABEL_JAANO_RULEPACKS` | `../rulepacks` | where to load the JSON packs from |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | unset | enables the real vision-LLM read |
+
+Session tokens last 12 hours — one inspection shift — and `POST /auth/refresh` slides
+an active one forward.
+
+### `manage.py` — the admin CLI
+
+Stdlib only, talks to the same database the server does (it deliberately has no
+independent default path, so the two can never drift apart).
+
+```
+init          create or upgrade the database
+createuser    create an account (the only way to make an admin)
+users         list accounts
+role          change an account's role
+disable       disable an account (revokes its tokens at once)
+passwd        reset a password
+scans         list stored inspections (--user --verdict --category --search)
+report        export one inspection as a print-ready HTML report
+stats         corpus aggregates
+delete-scan   delete one stored inspection
+secret        generate a value for LABEL_JAANO_SECRET
+seed          populate a demo corpus for a walkthrough
+```
+
+Passwords come from a prompt, or `--password-stdin` for scripts. `--password` exists
+and says so in its own help text: it is visible in shell history and `ps`.
+
+```bash
+python3 tests/test_store.py && python3 tests/test_auth.py && python3 tests/test_reports.py
+```
+
 ## The scan-input contract
 
 This is the JSON the OCR + vision-LLM pipeline must produce (see `samples/` for full
@@ -249,5 +400,7 @@ contract; swapping mock for real models, or PaddleOCR for another OCR, requires 
 engine changes. That separation is why the engine is trivially testable and why a
 gazette rule update is just a JSON edit + `/reload`.
 
-Still upstream / future work: persistence (Postgres), auth, and rendered PDF/DOCX
-reports — see `../ARCHITECTURE.md`.
+Still upstream / future work: a Postgres backend for multi-node deployments (the
+`store/` module is the only place that would change), and native PDF/DOCX rendering
+of the inspection report — the HTML one already prints correctly, which is what an
+inspector actually needs. See `../ARCHITECTURE.md`.
