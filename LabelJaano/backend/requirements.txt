@@ -1,16 +1,14 @@
 # The rule ENGINE itself has ZERO runtime dependencies — it is pure Python stdlib,
 # so `python3 run_scan.py ...` and `python3 tests/test_engine.py` work with no install.
 
-# --- HTTP API (app/main.py) -------------------------------------------------
-# Needed to serve the engine over REST (`uvicorn app.main:app --reload`).
-fastapi>=0.110
-uvicorn[standard]>=0.29
-pydantic>=2.6
-python-multipart>=0.0.9   # required for file uploads on POST /extract, /scan/image
-
-# --- Dev / test -------------------------------------------------------------
-pytest>=8.0
-httpx>=0.27          # required by fastapi.testclient.TestClient (tests/test_api.py)
+# --- Core API + test tools --------------------------------------------------
+# Pulled in via includes so there is ONE source of truth for the pins, and CI /
+# the Docker image can install a lean subset without the heavy stack below:
+#   requirements-core.txt  -> runtime only (what the Dockerfile installs)
+#   requirements-dev.txt    -> core + pytest/httpx (what CI installs)
+# This file is the full set — core + tests + real-photo extraction — so the old
+# `pip install -r requirements.txt` still installs everything it always did.
+-r requirements-dev.txt
 
 # --- Extraction pipeline (pipeline/, extract.py, POST /extract & /scan/image) ---
 # Heavy + optional. The pipeline runs WITHOUT these in mock mode (mock=True or

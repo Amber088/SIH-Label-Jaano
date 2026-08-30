@@ -1,0 +1,12 @@
+# Core runtime — the minimum to serve the engine over HTTP.
+#
+# Installing just this gives you a working API: POST /scan (JSON in, verdict out) and
+# every account/history/export endpoint run on it, and POST /extract & /scan/image work
+# in mock mode (LABEL_JAANO_MOCK=1). What it deliberately leaves out is the heavy
+# OCR/vision extraction stack (paddleocr, paddlepaddle, opencv, ...) in requirements.txt,
+# which is only needed to turn a real photo into scan-input. The Dockerfile installs this
+# file so the image stays lean; CI installs requirements-dev.txt (this + test tools).
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9   # file uploads on POST /extract, /scan/image

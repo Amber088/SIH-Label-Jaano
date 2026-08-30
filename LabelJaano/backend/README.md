@@ -200,6 +200,46 @@ workers each gets its own allowance — a factor-of-workers slack, not a hole, s
 budgets are set for a district office rather than tuned to a single request. And the
 limiter fails open: if its own bookkeeping raises, the request is served.
 
+## Docker
+
+The image is deliberately lean: it installs `requirements-core.txt` only, so the API
+and both image endpoints run — the latter in **mock mode** — without the multi-gigabyte
+OCR/vision stack. Build it from the **`LabelJaano/` directory**, one level up, because
+the rulepacks the engine enforces live beside `backend/` and must be in the build
+context:
+
+```bash
+cd LabelJaano
+docker build -f backend/Dockerfile -t labeljaano-backend .
+docker run --rm -p 8000:8000 labeljaano-backend
+# -> http://localhost:8000/health
+```
+
+The container runs as a non-root user and writes exactly one thing: the SQLite history,
+pointed at a `/data` volume (`LABEL_JAANO_DB=/data/labeljaano.db`) so `/app` stays
+read-only. Mount it to keep history across restarts, and pass any of the environment
+variables below with `-e`:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -v labeljaano-data:/data \
+  -e LABEL_JAANO_SECRET=change-me \
+  labeljaano-backend
+```
+
+For **real** photo extraction, layer the heavy stack on top: build a second image
+`FROM labeljaano-backend` that runs `pip install -r requirements.txt` and set
+`GEMINI_API_KEY`. The base image stays the fast path for demos and CI.
+
+## Continuous integration
+
+`.github/workflows/backend-ci.yml` runs the full suite on every push to `main` and
+every pull request that touches `LabelJaano/backend/**`, across Python 3.11 and 3.12.
+It installs `requirements-dev.txt` (core + `pytest`/`httpx`, no OCR stack) and runs
+`pytest -q`. No secrets are needed: with no `LABEL_JAANO_GEMINI_API_KEY` present the
+image endpoints auto-select mock mode, and the pipeline tests mock explicitly — so the
+same green suite you get locally is the one CI gates on.
+
 ## Scan from a photo (the extraction pipeline)
 
 `/scan` and `run_scan.py` expect the *normalized* scan-input JSON. The **pipeline**

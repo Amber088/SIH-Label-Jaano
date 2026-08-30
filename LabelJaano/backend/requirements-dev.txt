@@ -1,0 +1,6 @@
+# Dev / test — everything CI installs. Core runtime plus the two libraries the test
+# suite imports. No heavy OCR/vision stack (see requirements.txt), because the whole
+# suite runs in mock mode and never touches paddleocr/paddlepaddle/opencv.
+-r requirements-core.txt
+pytest>=8.0
+httpx>=0.27          # fastapi.testclient.TestClient (tests/test_api.py)

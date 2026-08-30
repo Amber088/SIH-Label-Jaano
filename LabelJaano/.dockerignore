@@ -1,0 +1,19 @@
+# Build context is LabelJaano/ (see backend/Dockerfile). Trim it to what the image
+# actually COPYs — backend/ and rulepacks/ — so builds are fast and reproducible.
+
+# The Flutter app: tens of MB of Dart/Android/iOS the backend image never touches.
+mobile/
+
+# Local Python virtualenv and byte-code/test caches — never belong in an image.
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+backend/.pytest_cache/
+
+# The developer's real SQLite history. The container starts with a fresh /data
+# volume; baking local scans in would both leak data and bust the cache each scan.
+backend/data/
+
+# Editor / OS noise.
+**/.DS_Store
