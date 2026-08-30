@@ -141,6 +141,54 @@ def test_an_unhandled_error_becomes_a_json_500_that_leaks_nothing():
     assert "/rulepacks" in errors[0].getMessage(), errors[0].getMessage()
 
 
+# --------------------------------------------------------------------------- #
+# Upload caps (image endpoints)
+# --------------------------------------------------------------------------- #
+def _jpeg(nbytes: int) -> bytes:
+    """Bytes that sniff as a JPEG (magic prefix) padded to *nbytes*, for upload tests."""
+    return b"\xff\xd8\xff\xe0" + b"0" * max(0, nbytes - 4)
+
+
+def test_scan_image_rejects_too_many_images_with_413():
+    """More images than the cap is a 413, before any are read or any model call is made.
+
+    A label is a few photos; a request carrying dozens is a mistake or an attempt to fan
+    one call out into dozens of paid model calls. The cap is read per request, so the
+    test tightens it to 2 and proves the boundary without posting nine files.
+    """
+    from app import main
+
+    tiny = _jpeg(16)
+    os.environ[main.MAX_IMAGES_ENV] = "2"
+    try:
+        r = client.post("/scan/image", files=[
+            ("images", (f"p{i}.jpg", tiny, "image/jpeg")) for i in range(3)
+        ])
+    finally:
+        os.environ.pop(main.MAX_IMAGES_ENV, None)
+
+    assert r.status_code == 413, r.text
+    detail = r.json()["detail"]
+    assert "too many images" in detail and main.MAX_IMAGES_ENV in detail, detail
+
+
+def test_scan_image_rejects_oversize_upload_with_413():
+    """A total over the byte cap is a 413. Tighten the cap to 1 MB and post 1.2 MB."""
+    from app import main
+
+    os.environ[main.MAX_UPLOAD_MB_ENV] = "1"
+    try:
+        r = client.post("/scan/image", files=[
+            ("images", ("big.jpg", _jpeg(1_200_000), "image/jpeg")),
+        ])
+    finally:
+        os.environ.pop(main.MAX_UPLOAD_MB_ENV, None)
+
+    assert r.status_code == 413, r.text
+    detail = r.json()["detail"]
+    assert "too large" in detail and main.MAX_UPLOAD_MB_ENV in detail, detail
+
+
 def test_health_ok():
     r = client.get("/health")
     assert r.status_code == 200, r.text

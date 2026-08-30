@@ -433,6 +433,36 @@ def _persist(
 # --------------------------------------------------------------------------- #
 # Image endpoints — run the OCR + Gemini extraction pipeline
 # --------------------------------------------------------------------------- #
+# Upload caps for the image endpoints, read at call time so a deployment can retune them
+# without a code change and a test can exercise the boundary. Both fall back to the
+# default on an unset, unparseable or non-positive value — never to "unlimited", which is
+# the failure mode a typo in a deploy script must not silently create.
+MAX_IMAGES_ENV = "LABEL_JAANO_MAX_IMAGES"
+MAX_UPLOAD_MB_ENV = "LABEL_JAANO_MAX_UPLOAD_MB"
+DEFAULT_MAX_IMAGES = 8
+DEFAULT_MAX_UPLOAD_MB = 25
+_UPLOAD_CHUNK = 1 << 20  # 1 MiB — the granularity we read and count bytes at
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _max_images() -> int:
+    return _positive_int_env(MAX_IMAGES_ENV, DEFAULT_MAX_IMAGES)
+
+
+def _max_upload_bytes() -> int:
+    return _positive_int_env(MAX_UPLOAD_MB_ENV, DEFAULT_MAX_UPLOAD_MB) * 1024 * 1024
+
+
 def _parse_json_form(raw: str | None, field: str):
     """Parse an optional JSON-string form field; 400 on malformed JSON."""
     if raw is None or raw.strip() == "":
@@ -458,15 +488,55 @@ def _parse_bool_form(raw: str | None):
 
 
 async def _read_images(files: list[UploadFile]) -> list[bytes]:
+    """Read every uploaded image into memory, enforcing the count and size caps.
+
+    Each image is both resident bytes and, downstream, a paid vision-model call, so an
+    uncapped endpoint lets one request pin arbitrary memory and run up an arbitrary bill.
+    Two limits guard it, both enforced on our own side rather than trusted from a
+    client-supplied ``Content-Length``:
+
+    * **count** — a label is a handful of photos (front, back, a side panel), so more
+      than :data:`DEFAULT_MAX_IMAGES` is almost certainly a mistake or an attack. Checked
+      before a single byte is read.
+    * **total bytes** — counted a megabyte at a time *as we read*, so an over-size upload
+      is abandoned close to the limit instead of being buffered in full and rejected
+      after the damage is done.
+
+    Over either cap is a 413 that names the limit and the env knob that raises it; an
+    empty file list, or a file with no bytes, is still a 400.
+    """
     if not files:
         raise HTTPException(status_code=400, detail="upload at least one image file")
+
+    max_images = _max_images()
+    if len(files) > max_images:
+        raise HTTPException(
+            status_code=413,
+            detail=(f"too many images: {len(files)} (max {max_images}). "
+                    f"Raise {MAX_IMAGES_ENV} to allow more."),
+        )
+
+    max_bytes = _max_upload_bytes()
     out: list[bytes] = []
+    total = 0
     for f in files:
-        data = await f.read()
-        if not data:
+        buf = bytearray()
+        while True:
+            chunk = await f.read(_UPLOAD_CHUNK)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            total += len(chunk)
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(f"upload too large: over {max_bytes // (1024 * 1024)} MB "
+                            f"total. Raise {MAX_UPLOAD_MB_ENV} to allow more."),
+                )
+        if not buf:
             raise HTTPException(status_code=400,
                                 detail=f"uploaded file '{f.filename}' is empty")
-        out.append(data)
+        out.append(bytes(buf))
     return out
 
 
