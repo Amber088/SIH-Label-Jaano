@@ -69,6 +69,33 @@ def test_bad_label_is_non_compliant():
     assert ("date_marking", "value") in failed            # expiry before mfg
 
 
+def test_manufacture_date_label_accepts_packaging_phrasing():
+    """A real label saying 'DATE OF PACKAGING' must satisfy the date-label check.
+
+    Regression: the format regex listed 'packing' but not 'packaging'/'packaged',
+    so a genuine packing-date declaration was failed as "label not found" — seen on
+    a live scan whose raw_text held 'DATE OF PACKAGING: 20/04/23'. The label is
+    valid; the check must accept the whole manufacture/packing/packaging family.
+    """
+    def _format_fires(raw: str) -> bool:
+        # category "other" applies only the base Legal Metrology pack (no food noise)
+        scan = ScanInput(category="other", raw_text=raw,
+                         fields={"manufacture_date": Field(value="04/2023")})
+        report = evaluate_scan(scan)
+        return ("manufacture_date", "format") in {
+            (v.declaration_id, v.check_type) for v in report.violations
+        }
+
+    for phrasing in ("DATE OF PACKAGING: 20/04/23", "PACKAGED ON 04/2023",
+                     "MFG 04/2023", "Date of manufacture 04/2023",
+                     "PKD 04/23", "Packed on 04/2023"):
+        assert not _format_fires(phrasing), f"valid date label was failed: {phrasing!r}"
+
+    # a label with no date wording at all must still be flagged (fix didn't defang it)
+    assert _format_fires("Net Qty 500 g\nSome Brand\nMRP Rs 100 incl. of all taxes"), \
+        "a label with no manufacture/packing date should still fail the format check"
+
+
 # --------------------------------------------------------------------------- #
 # Validators
 # --------------------------------------------------------------------------- #

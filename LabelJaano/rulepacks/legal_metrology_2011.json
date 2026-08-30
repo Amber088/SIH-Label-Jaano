@@ -56,7 +56,7 @@
       "severity": "critical",
       "checks": [
         { "type": "presence", "message": "Month & year of manufacture/packing is missing." },
-        { "type": "format", "target": "raw_text", "regex": "(?i)(mfg|mfd|manufactured|packed|pkd|date of (manufacture|packing|import))", "message": "Manufacture/packing/import date label not found." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)(mfg|mfd|manufactured|packed|pkd|packaged|packaging|date of (manufacture|packing|packaging|import))", "message": "Manufacture/packing/import date label not found." },
         { "type": "value", "validator": "valid_month_year_not_future", "message": "Manufacture/packing date is invalid or lies in the future." }
       ]
     },
