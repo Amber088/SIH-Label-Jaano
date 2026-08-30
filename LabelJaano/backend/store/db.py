@@ -57,7 +57,7 @@ __all__ = [
 # Bump this and append to _MIGRATIONS when the schema changes. The pragma
 # ``user_version`` in the file records which migrations have been applied, so an
 # existing database upgrades in place instead of needing to be thrown away.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _DEFAULT_DB = _BACKEND_DIR / "data" / "labeljaano.db"
@@ -138,7 +138,37 @@ CREATE INDEX IF NOT EXISTS idx_viol_scan ON scan_violations(scan_id);
 CREATE INDEX IF NOT EXISTS idx_viol_decl ON scan_violations(declaration_id);
 """
 
-_MIGRATIONS: list[str] = [_MIGRATION_1]
+# Migration 2 — the audit trail.
+#
+# Two distinct things are recorded, deliberately in one table:
+#   * privileged *reads* — an officer opening the whole-corpus queue or another
+#     account's inspection. An enforcement record that anyone with a role can read
+#     unobserved is not an enforcement record, and "who looked at this file" is the
+#     first question asked when a case is disputed.
+#   * privileged *writes* — role changes, account disables, rulepack reloads.
+#
+# ``actor_id`` is nullable on purpose: it is set NULL rather than cascade-deleted when
+# an account is removed, because deleting the officer must not erase the fact that
+# somebody looked. The row survives with the email string frozen in ``actor_email``.
+_MIGRATION_2 = """
+CREATE TABLE IF NOT EXISTS audit_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT    NOT NULL,               -- ISO-8601 UTC
+    actor_id     TEXT,                           -- NULL once the account is deleted
+    actor_email  TEXT    NOT NULL DEFAULT '',    -- frozen copy, survives deletion
+    actor_role   TEXT    NOT NULL DEFAULT '',    -- role AT THE TIME of the action
+    action       TEXT    NOT NULL,               -- e.g. 'scans.list', 'user.role'
+    target       TEXT,                           -- scan id / user id / pack id
+    detail       TEXT,                           -- JSON: filters used, old->new value
+    FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_actor   ON audit_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action  ON audit_log(action);
+"""
+
+_MIGRATIONS: list[str] = [_MIGRATION_1, _MIGRATION_2]
 
 
 # --------------------------------------------------------------------------- #

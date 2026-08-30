@@ -59,10 +59,12 @@ Leave this terminal running. In a **second** terminal, confirm it's alive:
 
 ```bash
 curl http://localhost:8000/health
-# {"status":"ok",...,"packs_loaded":2,...}
+# {"status":"ok",...,"packs_loaded":8,...}
 ```
 
-✅ **Check:** `/health` returns JSON with `packs_loaded: 2`.
+✅ **Check:** `/health` returns JSON with `packs_loaded: 8` — one per file in
+`rulepacks/`. A given scan is judged by the subset its category selects (six of the
+eight for `packaged_food`), which is what `/categories` reports as `packs`.
 
 ---
 
@@ -114,10 +116,14 @@ Your phone should appear in the list (by model name).
 
 ```bash
 cd /Users/amberjain/Desktop/SIH/LabelJaano/mobile
-flutter create .          # generates android/ ios/ web/ (first time only; keeps pubspec.yaml + lib/)
 flutter pub get
 flutter run               # if prompted, choose your phone
 ```
+
+> `android/` is already committed, so **do not** run `flutter create .` — it is only
+> for a checkout that has `lib/` and `pubspec.yaml` but no platform folders. Here it
+> would rewrite `android/app/src/main/AndroidManifest.xml` over the top of the app
+> label and the `<queries>` block the image picker needs.
 
 - First run triggers a **Gradle build** that downloads Android build deps — it can
   take a few minutes and needs internet. Later runs are fast.
@@ -153,7 +159,7 @@ To make the verdict reflect the actual photo (and show real violations), give th
 backend a Gemini key instead of mock mode. Stop uvicorn, then:
 
 ```bash
-pip install "google-generativeai>=0.7" pillow
+pip install "google-genai>=1.0" pillow
 export GEMINI_API_KEY=your_key_here
 uvicorn app.main:app --host 0.0.0.0 --port 8000     # note: no LABEL_JAANO_MOCK
 ```

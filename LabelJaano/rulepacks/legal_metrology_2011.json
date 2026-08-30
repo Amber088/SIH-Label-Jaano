@@ -84,7 +84,7 @@
       "checks": [
         { "type": "presence", "message": "MRP is missing." },
         { "type": "format", "target": "raw_text", "regex": "(?i)(m\\.?\\s*r\\.?\\s*p\\.?|maximum retail price)", "message": "MRP label not found." },
-        { "type": "format", "target": "raw_text", "regex": "(?i)(incl|inclusive)[^.]{0,30}all\\s*taxes", "message": "MRP must be declared as inclusive of all taxes (e.g., 'Maximum Retail Price ₹__ inclusive of all taxes')." },
+        { "type": "format", "target": "raw_text", "regex": "(?i)incl(?:usive|uding|\\.)?[^;()]{0,30}?all\\s*taxes", "message": "MRP must be declared as inclusive of all taxes (e.g., 'Maximum Retail Price ₹__ inclusive of all taxes')." },
         { "type": "value", "validator": "positive_currency", "message": "MRP value is missing or is not a valid positive amount." },
         { "type": "placement", "panel": "principal_display_panel", "message": "MRP must appear on the principal display panel." }
       ]

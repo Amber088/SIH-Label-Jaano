@@ -35,7 +35,9 @@ __all__ = [
     "set_role",
     "set_disabled",
     "list_users",
+    "list_users_page",
     "count_users",
+    "count_users_by_role",
 ]
 
 
@@ -141,7 +143,13 @@ def create_user(
 
 
 def set_role(user_id: str, role: Role | str) -> bool:
-    """Promote or demote an account. Used by ``manage.py``, not by the HTTP API."""
+    """Promote or demote an account.
+
+    Callers: ``manage.py role`` and ``PATCH /admin/users/{id}`` (MANAGE_USERS). The
+    change takes effect on the account's very next request — :func:`app.deps.optional_user`
+    re-reads the role from this table rather than trusting the role claim in the token —
+    so a demotion does not wait for a session to expire.
+    """
     n = db.execute(
         "UPDATE users SET role = ? WHERE id = ?", (Role.parse(role).value, user_id)
     )
@@ -201,11 +209,76 @@ def authenticate(email: str, password: str) -> Optional[User]:
 
 
 def list_users(*, limit: int = 100, offset: int = 0) -> list[User]:
+    # ``id`` breaks the tie: ``created_at`` is only second-resolution, so a seed
+    # script or a bulk import puts several accounts on the same timestamp, and an
+    # unordered tie lets one page repeat a row the previous page already showed.
     rows = db.query(
-        "SELECT * FROM users ORDER BY created_at ASC LIMIT ? OFFSET ?",
+        "SELECT * FROM users ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
         (max(1, min(int(limit), 500)), max(0, int(offset))),
     )
     return [User.from_row(r) for r in rows]
+
+
+def list_users_page(
+    *,
+    role: Optional[Role | str] = None,
+    search: Optional[str] = None,
+    include_disabled: bool = True,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[tuple[User, int]], int]:
+    """A filtered page of accounts with each one's inspection count, plus the total.
+
+    The count comes from a LEFT JOIN rather than a query per row: the admin screen
+    lists 50 accounts at a time, and 51 round trips to render one table is the kind of
+    thing that is invisible on a seeded demo and painful on a real district's corpus.
+
+    ``search`` matches email or name. Returns ``(rows, total_before_paging)`` so the
+    caller can render "showing 50 of 214" without a second count query of its own.
+    """
+    where: list[str] = []
+    params: dict[str, Any] = {}
+    if role is not None:
+        where.append("u.role = :role")
+        params["role"] = Role.parse(role).value
+    if not include_disabled:
+        where.append("u.disabled = 0")
+    if search and search.strip():
+        where.append("(u.email LIKE :q OR u.name LIKE :q)")
+        params["q"] = f"%{search.strip()}%"
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    total_row = db.query_one(f"SELECT COUNT(*) AS n FROM users u{clause}", params)
+    total = int(total_row["n"]) if total_row else 0
+
+    page = dict(params)
+    page["limit"] = max(1, min(int(limit), 500))
+    page["offset"] = max(0, int(offset))
+    rows = db.query(
+        f"""
+        SELECT u.*, COUNT(s.id) AS scan_count
+          FROM users u
+          LEFT JOIN scans s ON s.user_id = u.id
+          {clause}
+         GROUP BY u.id
+         ORDER BY u.created_at ASC, u.id ASC
+         LIMIT :limit OFFSET :offset
+        """,
+        page,
+    )
+    return [(User.from_row(r), int(r["scan_count"] or 0)) for r in rows], total
+
+
+def count_users_by_role() -> dict[str, int]:
+    """``{role: count}`` for every role, including the ones with nobody in them.
+
+    Zero-filled so a dashboard tile reads "officers: 0" rather than omitting the row —
+    "no officers enrolled" is information, and a missing key looks like a bug.
+    """
+    counts = {r.value: 0 for r in Role}
+    for row in db.query("SELECT role, COUNT(*) AS n FROM users GROUP BY role"):
+        counts[Role.parse(row["role"]).value] = int(row["n"])
+    return counts
 
 
 def count_users() -> int:

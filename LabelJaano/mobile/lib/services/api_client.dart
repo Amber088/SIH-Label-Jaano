@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../core/config.dart';
 import '../models/account.dart';
 import '../models/compliance_report.dart';
 import '../models/saved_scan.dart';
@@ -385,6 +386,27 @@ class ApiClient {
         ? decoded['packs'] as List
         : (decoded is List ? decoded : const []);
     return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  /// Every product category the server's loaded packs can score.
+  ///
+  /// Fetched rather than hardcoded: dropping a rule pack into `rulepacks/` makes its
+  /// categories selectable without shipping a new app build. [CategoryOption.autoDetect]
+  /// is prepended here because it is the *absence* of a category and the server
+  /// correctly does not list it. Order is the server's — richest first, catch-all last.
+  Future<List<CategoryOption>> categories(String baseUrl) async {
+    final resp = await _guard(
+      () => _client.get(_uri(baseUrl, '/categories')).timeout(_shortTimeout),
+    );
+    final decoded = json.decode(resp.body);
+    final list = (decoded is Map && decoded['categories'] is List)
+        ? decoded['categories'] as List
+        : (decoded is List ? decoded : const []);
+    return [
+      CategoryOption.autoDetect,
+      for (final e in list)
+        CategoryOption.fromJson((e as Map).cast<String, dynamic>()),
+    ];
   }
 
   // ----------------------------------------------------------------------- //

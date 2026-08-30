@@ -11,7 +11,6 @@ import '../services/api_client.dart';
 import '../services/scan_store.dart';
 import '../services/session.dart';
 import '../services/settings.dart';
-import '../widgets/brand.dart';
 import '../widgets/common.dart';
 import 'report_screen.dart';
 
@@ -55,11 +54,61 @@ class _ScanScreenState extends State<ScanScreen> {
   String _category = '';
   bool _useSampleCalibration = false;
 
+  /// The picker's contents. Starts as the short offline fallback and is replaced by
+  /// whatever `GET /categories` reports, so a new rule pack on the server shows up
+  /// here without an app release. A failed fetch is not an error worth showing: the
+  /// fallback still covers auto-detect, which is what almost every scan uses.
+  List<CategoryOption> _categories = AppInfo.fallbackCategories;
+
   /// Whether to file this inspection on the server. Only meaningful when signed
   /// in; an officer occasionally wants a verdict without adding a row to the
   /// record, e.g. re-scanning the same package to check a retake.
   bool _file = true;
   bool _busy = false;
+
+  /// Which server [_categories] came from, so a base-URL change in Settings refetches
+  /// and a rebuild for any other reason does not.
+  String? _categoriesFrom;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Provider.of (not context.read) so this re-runs when Settings changes; pointing
+    // the app at a different backend should repopulate the picker from that one.
+    final baseUrl = Provider.of<Settings>(context).baseUrl;
+    if (baseUrl == _categoriesFrom) return;
+    _categoriesFrom = baseUrl;
+    _loadCategories(baseUrl);
+  }
+
+  Future<void> _loadCategories(String baseUrl) async {
+    try {
+      final fetched = await context.read<ApiClient>().categories(baseUrl);
+      // Guard both the unmount race and an empty answer — replacing the fallback with
+      // nothing would leave the picker unusable, including auto-detect.
+      if (!mounted || fetched.length <= 1 || baseUrl != _categoriesFrom) return;
+      setState(() {
+        _categories = fetched;
+        // A category the new server does not offer must not stay selected: it would
+        // be sent verbatim and scored against whatever pack happened to match.
+        if (!fetched.any((c) => c.id == _category)) _category = '';
+      });
+    } catch (_) {
+      // Offline, or an older server without /categories. The fallback stands.
+    }
+  }
+
+  /// The line under the picker: what the selected category actually pulls in.
+  ///
+  /// Derived from the server's own numbers rather than written by hand, which is the
+  /// point — the previous hardcoded hints said "Legal Metrology base pack" for
+  /// categories that pull four to six packs, and nothing ever caught it.
+  String? _hintFor(String id) {
+    for (final c in _categories) {
+      if (c.id == id) return c.hint;
+    }
+    return null;
+  }
 
   @override
   void dispose() {
@@ -346,19 +395,31 @@ class _ScanScreenState extends State<ScanScreen> {
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 12)),
           children: [
             DropdownButtonFormField<String>(
-              value: _category,
+              initialValue: _category,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Category'),
               items: [
-                for (final c in AppInfo.categories)
-                  DropdownMenuItem(value: c.id, child: Text(c.label)),
+                for (final c in _categories)
+                  DropdownMenuItem(
+                    value: c.id,
+                    child: Text(c.label, overflow: TextOverflow.ellipsis),
+                  ),
               ],
               onChanged: (v) => setState(() => _category = v ?? ''),
             ),
+            if (_hintFor(_category) case final hint?)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(hint,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(fontSize: 11.5, color: Palette.faint)),
+              ),
             const SizedBox(height: 4),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              activeColor: Palette.brass,
+              activeThumbColor: Palette.brass,
               value: _useSampleCalibration,
               onChanged: (v) => setState(() => _useSampleCalibration = v),
               title: Text('Sample-label calibration',
@@ -371,7 +432,7 @@ class _ScanScreenState extends State<ScanScreen> {
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              activeColor: Palette.brass,
+              activeThumbColor: Palette.brass,
               value: settings.serverMock,
               onChanged: (v) => context.read<Settings>().serverMock = v,
               title: Text('Use server mock pipeline',
@@ -387,7 +448,7 @@ class _ScanScreenState extends State<ScanScreen> {
             if (session.isSignedIn)
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                activeColor: Palette.brass,
+                activeThumbColor: Palette.brass,
                 value: _file,
                 onChanged: (v) => setState(() => _file = v),
                 title: Text('File to my inspection history',
@@ -464,10 +525,10 @@ class _CaptureSlot extends StatelessWidget {
         height: 116,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: hasImage ? Palette.card : Palette.brassTint.withOpacity(0.35),
+          color: hasImage ? Palette.card : Palette.brassTint.withValues(alpha: 0.35),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: hasImage ? Palette.hairline : Palette.brass.withOpacity(0.5),
+            color: hasImage ? Palette.hairline : Palette.brass.withValues(alpha: 0.5),
             width: hasImage ? 1 : 1.4,
           ),
         ),
@@ -534,7 +595,7 @@ class _ScanningOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned.fill(
       child: Container(
-        color: Palette.navy.withOpacity(0.72),
+        color: Palette.navy.withValues(alpha: 0.72),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -601,7 +662,7 @@ class _CaliperScanPainter extends CustomPainter {
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round;
     // Graduated beam
-    canvas.drawLine(Offset(0, 10), Offset(size.width, 10), beam);
+    canvas.drawLine(const Offset(0, 10), Offset(size.width, 10), beam);
     for (double x = 0; x <= size.width; x += 10) {
       canvas.drawLine(Offset(x, 10), Offset(x, x % 50 == 0 ? 22 : 16), beam);
     }

@@ -15,16 +15,18 @@ See :mod:`store.db` for the connection model and the reasoning behind sqlite3.
 """
 from __future__ import annotations
 
-from . import db
+from . import audit, db
 from .db import SCHEMA_VERSION, close, configure, connection, db_path, init_schema
 from .db import journal_mode
 from .db import stats as db_stats
 from .scans import (
+    EXPORT_BATCH,
     SCORED_VERDICTS,
     ScanRow,
     aggregate_stats,
     delete_scan,
     get_scan,
+    iter_scans_for_export,
     list_scans,
     save_scan,
     top_violations,
@@ -34,10 +36,12 @@ from .users import (
     UserExists,
     authenticate,
     count_users,
+    count_users_by_role,
     create_user,
     get_user,
     get_user_by_email,
     list_users,
+    list_users_page,
     normalise_email,
     set_disabled,
     set_role,
@@ -59,6 +63,8 @@ __all__ = [
     "save_scan",
     "get_scan",
     "list_scans",
+    "iter_scans_for_export",
+    "EXPORT_BATCH",
     "delete_scan",
     "aggregate_stats",
     "top_violations",
@@ -73,6 +79,10 @@ __all__ = [
     "set_role",
     "set_disabled",
     "list_users",
+    "list_users_page",
     "count_users",
+    "count_users_by_role",
     "normalise_email",
+    # audit trail
+    "audit",
 ]

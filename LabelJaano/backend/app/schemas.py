@@ -333,3 +333,79 @@ class StatsOut(BaseModel):
     by_category: list[CategoryStatOut] = Field(default_factory=list)
     top_violations: list[TopViolationOut] = Field(default_factory=list)
     scope: str = Field(..., description="'own' or 'all'")
+
+
+# --------------------------------------------------------------------------- #
+# Category discovery
+# --------------------------------------------------------------------------- #
+class CategoryOut(BaseModel):
+    """One product category the engine can score, and what it pulls in.
+
+    The client renders its category picker from this rather than a hardcoded list, so
+    adding a rule pack to the rulepacks directory makes its categories selectable
+    without shipping a new app build.
+    """
+    id: str
+    label: str
+    packs: list[str] = Field(..., description="pack ids that apply to this category")
+    declarations: int = Field(..., description="mandatory declarations after merging")
+    authorities: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Administration
+# --------------------------------------------------------------------------- #
+class AdminUserOut(UserOut):
+    """An account as an administrator sees it: the public shape plus its scan count.
+
+    Inherits from :class:`UserOut`, which has no password field at all, so extending
+    the admin view cannot accidentally widen it to the verifier.
+    """
+    scans: int = 0
+
+
+class AdminUserListOut(BaseModel):
+    items: list[AdminUserOut]
+    total: int
+    limit: int
+    offset: int
+    by_role: dict[str, int] = Field(
+        default_factory=dict,
+        description="account count per role over the whole table, not just this page",
+    )
+
+
+class AdminUserCreate(BaseModel):
+    """Create an account at any role.
+
+    This is the only way an ``admin`` can come into existence over HTTP, and it is
+    itself admin-gated — there is deliberately no enrolment code that mints one.
+    """
+    email: str
+    password: str
+    name: str = ""
+    role: str = Field("consumer", description="consumer | officer | admin")
+
+
+class AdminUserPatch(BaseModel):
+    """Partial update. Omitted fields are left alone; at least one is required."""
+    role: Optional[str] = Field(None, description="consumer | officer | admin")
+    disabled: Optional[bool] = None
+
+
+class AuditEntryOut(BaseModel):
+    id: int
+    created_at: str
+    actor_id: Optional[str] = None
+    actor_email: str = ""
+    actor_role: str = Field("", description="the actor's role AT THE TIME of the action")
+    action: str
+    target: Optional[str] = None
+    detail: Optional[dict[str, Any]] = None
+
+
+class AuditListOut(BaseModel):
+    items: list[AuditEntryOut]
+    total: int
+    limit: int
+    offset: int

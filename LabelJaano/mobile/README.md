@@ -17,13 +17,13 @@ one command (see below), so they aren't checked in.
 lib/
   main.dart                 App root: providers + MaterialApp + theme
   core/
-    config.dart             Default base URL per platform, app metadata, categories
+    config.dart             Default base URL per platform, app metadata, CategoryOption
     theme.dart              "Measurement instrument" identity: Palette + LabelJaanoTheme
   models/
     compliance_report.dart  Mirrors the backend ComplianceReport.to_dict()
     scan_record.dart        One in-session inspection (report + thumbnails + note)
   services/
-    api_client.dart         Multipart POST /scan/image, /health, /rulepacks
+    api_client.dart         Multipart POST /scan/image, /health, /rulepacks, /categories
     settings.dart           Base URL + server-mock toggle (ChangeNotifier)
     scan_store.dart         In-memory history + dashboard/queue aggregates
   widgets/                  Brand motif, score gauge, charts, tiles, common bits
@@ -76,7 +76,7 @@ curl http://localhost:8000/health
 > **"Use server mock pipeline"** switch ON (it is by default). The backend then
 > returns verdicts from its offline mock OCR + Gemini path, so you get a full
 > end-to-end run with nothing extra installed. Turn it OFF once `paddleocr`,
-> `google-generativeai`, and `GEMINI_API_KEY` are configured on the server for
+> `google-genai`, and `GEMINI_API_KEY` are configured on the server for
 > genuine on-photo extraction.
 
 ---
@@ -167,6 +167,11 @@ to show the verdict swing from **Compliant** to **Non-compliant**.
 - `GET /health` — `{status, version, packs_loaded, pack_ids}`.
 - `GET /rulepacks` — list of `{pack_id, label, authority, version, scope,
   applies_when, declarations}`.
+- `GET /categories` — every category the loaded packs can score, as
+  `{id, label, packs, declarations, authorities}`. The picker is filled from this,
+  not from a hardcoded list; `AppInfo.fallbackCategories` covers only the case
+  where the call has not answered yet. The one-line hint under each entry is
+  derived from the numbers above, so it cannot drift from the packs.
 
 Verdicts: `compliant` · `needs_review` · `non_compliant`.
 Severities: `critical` · `major` · `minor`. Outcomes: `pass` · `fail` · `skip`.
@@ -178,7 +183,7 @@ Severities: `critical` · `major` · `minor`. Outcomes: `pass` · `fail` · `ski
 - **"Connection refused" / timeout** → wrong base URL for your platform (see the
   table), or the backend isn't on `0.0.0.0`. Use **Settings → Test connection**.
 - **503 from the server** → the live pipeline's deps/key aren't set up. Turn
-  **server mock** back ON, or install `paddleocr` + `google-generativeai` and set
+  **server mock** back ON, or install `paddleocr` + `google-genai` and set
   `GEMINI_API_KEY`.
 - **Build fails on an old Flutter** → upgrade to 3.24+ (`flutter upgrade`).
 - **Fonts look like fallback** → first launch had no network; reconnect and

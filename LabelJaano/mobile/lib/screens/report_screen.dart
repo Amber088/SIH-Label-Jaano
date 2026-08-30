@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -602,7 +600,7 @@ class _ReferenceList extends StatelessWidget {
             decoration: BoxDecoration(
               color: Palette.brassTint,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Palette.brass.withOpacity(0.35)),
+              border: Border.all(color: Palette.brass.withValues(alpha: 0.35)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,

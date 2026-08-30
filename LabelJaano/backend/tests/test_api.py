@@ -27,91 +27,41 @@ tests, because the interesting failures are all leaks:
   signed by the same key, so this proves they are not interchangeable.
 
 Every test that touches persistence calls :func:`_reset_db` first, which points the
-store at a fresh in-memory database. Nothing here writes a file.
+store at a fresh in-memory database. Nothing here writes a file. The client and the
+account fixtures come from :mod:`tests.apiclient`, shared with the admin, export and
+rate-limit modules so that "what an officer is" is defined in exactly one place.
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
 
-BACKEND = Path(__file__).resolve().parents[1]
-SAMPLES = BACKEND / "samples"
-sys.path.insert(0, str(BACKEND))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Importing this configures the store for ``:memory:`` *before* the app is imported,
+# which is why it comes first — see its module docstring.
+from apiclient import (  # noqa: E402
+    BACKEND,
+    OFFICER_CODE,
+    PASSWORD,
+    SAMPLES,
+    client,
+)
+import apiclient  # noqa: E402
 import store  # noqa: E402
 
-# Before the app is imported or any request is made: a stray real database file
-# created by a test run would then be picked up by the dev server, and demo history
-# would be indistinguishable from test fixtures.
-store.configure(":memory:")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
 from app import deps  # noqa: E402
-from app.main import app  # noqa: E402
 from auth.registration import OFFICER_CODE_ENV  # noqa: E402
 
-client = TestClient(app)
-
-OFFICER_CODE = "demo-enrolment-code"
-PASSWORD = "password123"
-
-
-def _sample(name: str) -> dict:
-    with open(SAMPLES / name, "r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-# --------------------------------------------------------------------------- #
-# Fixtures for the account/history half
-# --------------------------------------------------------------------------- #
-def _reset_db() -> None:
-    """Fresh in-memory database, persistence enabled, officer sign-up available.
-
-    ``init_persistence`` is called directly rather than relying on the startup event,
-    because whether ``TestClient`` fires startup depends on it being used as a context
-    manager — and a test that silently ran without a database would pass for the wrong
-    reason.
-    """
-    os.environ.pop(deps.PERSISTENCE_DISABLED_ENV, None)
-    os.environ[OFFICER_CODE_ENV] = OFFICER_CODE
-    store.configure(":memory:")
-    deps.init_persistence()
-    assert deps.persistence_ready(), "test setup failed: no database"
-
-
-def _register(email: str, *, role: str | None = None,
-              officer_code: str | None = None, name: str = "Test User") -> dict:
-    body: dict = {"email": email, "password": PASSWORD, "name": name}
-    if role is not None:
-        body["role"] = role
-    if officer_code is not None:
-        body["officer_code"] = officer_code
-    r = client.post("/auth/register", json=body)
-    assert r.status_code == 201, r.text
-    return r.json()
-
-
-def _headers(token: str) -> dict:
-    return {"Authorization": f"Bearer {token}"}
-
-
-def _consumer(email: str = "consumer@test.in") -> dict:
-    return _register(email)
-
-
-def _officer(email: str = "officer@test.gov.in") -> dict:
-    return _register(email, role="officer", officer_code=OFFICER_CODE)
-
-
-def _file_scan(token: str, sample: str = "good_label.json", **params) -> dict:
-    r = client.post("/scan", json=_sample(sample), headers=_headers(token),
-                    params=params)
-    assert r.status_code == 200, r.text
-    return r.json()
-
+_sample = apiclient.sample
+_reset_db = apiclient.reset_db
+_register = apiclient.register
+_headers = apiclient.headers
+_consumer = apiclient.consumer
+_officer = apiclient.officer
+_admin = apiclient.admin
+_file_scan = apiclient.scan
 
 
 # --------------------------------------------------------------------------- #
@@ -255,11 +205,29 @@ def test_scan_accepts_new_context_flags():
 # Reload
 # --------------------------------------------------------------------------- #
 def test_reload_returns_pack_count():
-    r = client.post("/reload")
+    """Reload is admin-only: it pushes a gazette amendment live for every user at once."""
+    _reset_db()
+    admin = _admin()
+    r = client.post("/reload", headers=_headers(admin["access_token"]))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "reloaded"
     assert body["packs_loaded"] >= 2
+
+
+def test_reload_is_refused_to_everyone_below_admin():
+    """An officer enforces the rules; changing them is a different job.
+
+    Anonymous gets 401 (no identity), officer gets 403 (identified but not allowed) —
+    the distinction matters, because 403 tells a real officer their session is fine and
+    it is the permission that is wrong.
+    """
+    _reset_db()
+    assert client.post("/reload").status_code == 401
+    officer = _officer()
+    r = client.post("/reload", headers=_headers(officer["access_token"]))
+    assert r.status_code == 403, r.text
+    assert "not permitted" in r.json()["detail"].lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -879,28 +847,54 @@ def test_history_answers_503_when_persistence_is_disabled():
         _reset_db()
 
 
+def test_the_cors_allow_list_is_configurable_and_defaults_to_open() -> None:
+    """``LABEL_JAANO_CORS_ORIGINS`` narrows CORS; unset means ``*``.
+
+    The default has to stay ``*``, because the demo runs the Flutter app from a phone
+    on the LAN and Chrome from localhost, and neither has a stable origin worth
+    naming. That default is only defensible because ``allow_credentials`` is False —
+    so this test pins that too. If someone ever flips credentials on while origins are
+    still ``*``, Starlette will happily reflect any origin *and* send cookies, and
+    every signed-in browser becomes vulnerable to any page on the internet.
+    """
+    from app import main as app_main
+
+    was = os.environ.get(app_main.CORS_ORIGINS_ENV)
+    try:
+        os.environ.pop(app_main.CORS_ORIGINS_ENV, None)
+        assert app_main._cors_origins() == ["*"], "the demo default must stay open"
+
+        # Whitespace, a trailing slash and a stray empty entry are all operator typos
+        # in a comma-separated env var, not reasons to fail to boot.
+        os.environ[app_main.CORS_ORIGINS_ENV] = (
+            " https://console.example.gov.in/ , https://app.example.gov.in ,"
+        )
+        assert app_main._cors_origins() == [
+            "https://console.example.gov.in",
+            "https://app.example.gov.in",
+        ]
+
+        # A value that is nothing but separators is a misconfiguration; falling back to
+        # the documented default beats booting with an empty allow-list that would
+        # reject every browser with no clue why.
+        os.environ[app_main.CORS_ORIGINS_ENV] = " , , "
+        assert app_main._cors_origins() == ["*"]
+    finally:
+        if was is None:
+            os.environ.pop(app_main.CORS_ORIGINS_ENV, None)
+        else:
+            os.environ[app_main.CORS_ORIGINS_ENV] = was
+
+    # The pairing that makes the open default safe.
+    cors = next(m for m in app_main.app.user_middleware
+                if "CORS" in m.cls.__name__)
+    assert cors.kwargs["allow_credentials"] is False, (
+        "allow_origins=['*'] is only safe without credentials"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Self-contained runner (no pytest required)
 # --------------------------------------------------------------------------- #
-def _run_all() -> int:
-    tests = [v for k, v in sorted(globals().items())
-             if k.startswith("test_") and callable(v)]
-    passed = failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"  PASS  {t.__name__}")
-            passed += 1
-        except AssertionError as e:
-            print(f"  FAIL  {t.__name__}: {e}")
-            failed += 1
-        except Exception as e:  # noqa: BLE001
-            print(f"  ERROR {t.__name__}: {type(e).__name__}: {e}")
-            failed += 1
-    print(f"\n{passed} passed, {failed} failed, {len(tests)} total")
-    return 0 if failed == 0 else 1
-
-
 if __name__ == "__main__":
-    print("Running API tests\n")
-    raise SystemExit(_run_all())
+    raise SystemExit(apiclient.run_all(globals(), title="API tests"))

@@ -230,7 +230,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _card(children: [
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            activeColor: Palette.brass,
+            activeThumbColor: Palette.brass,
             value: settings.serverMock,
             onChanged: (v) => context.read<Settings>().serverMock = v,
             title: Text('Use server mock pipeline',

@@ -25,7 +25,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from . import db
 
@@ -34,6 +34,8 @@ __all__ = [
     "save_scan",
     "get_scan",
     "list_scans",
+    "iter_scans_for_export",
+    "EXPORT_BATCH",
     "delete_scan",
     "aggregate_stats",
     "top_violations",
@@ -324,20 +326,18 @@ def get_scan(scan_id: str, *, user_id: Optional[str] = None) -> Optional[ScanRow
     return ScanRow.from_row(row) if row else None
 
 
-def list_scans(
+def _scan_filters(
     *,
     user_id: Optional[str] = None,
     verdict: Optional[str] = None,
     category: Optional[str] = None,
     search: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> tuple[list[ScanRow], int]:
-    """Newest-first page of scans plus the total matching count.
+) -> tuple[str, dict[str, Any]]:
+    """Build the shared WHERE clause for the queue, the export and the count.
 
-    Filters compose. ``user_id`` is how the API enforces that a consumer sees only
-    their own history while an officer sees everything — the caller decides, this
-    function just honours it.
+    One builder rather than three copies: a filter that behaves differently in the CSV
+    than in the on-screen queue would make an officer's export quietly disagree with
+    what they were looking at when they clicked it.
     """
     where: list[str] = []
     params: dict[str, Any] = {}
@@ -358,7 +358,27 @@ def list_scans(
         )
         params["q"] = f"%{search}%"
 
-    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    return (f" WHERE {' AND '.join(where)}" if where else ""), params
+
+
+def list_scans(
+    *,
+    user_id: Optional[str] = None,
+    verdict: Optional[str] = None,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[ScanRow], int]:
+    """Newest-first page of scans plus the total matching count.
+
+    Filters compose. ``user_id`` is how the API enforces that a consumer sees only
+    their own history while an officer sees everything — the caller decides, this
+    function just honours it.
+    """
+    clause, params = _scan_filters(
+        user_id=user_id, verdict=verdict, category=category, search=search
+    )
 
     total = _as_int(
         db.query_one(f"SELECT COUNT(*) AS n FROM scans{clause}", params)["n"]
@@ -373,6 +393,67 @@ def list_scans(
         page_params,
     )
     return [ScanRow.from_row(r) for r in rows], total
+
+
+#: Rows fetched per round trip by :func:`iter_scans_for_export`. Large enough that a
+#: few-thousand-row export is a handful of queries, small enough that no single result
+#: set is held in memory at once.
+EXPORT_BATCH = 500
+
+
+def iter_scans_for_export(
+    *,
+    user_id: Optional[str] = None,
+    verdict: Optional[str] = None,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    max_rows: Optional[int] = None,
+) -> Iterator[ScanRow]:
+    """Stream every matching scan, oldest first, in batches.
+
+    Oldest-first because an export is a register, and a register reads forward in
+    time. Keyset pagination on ``(created_at, id)`` rather than LIMIT/OFFSET: OFFSET
+    re-walks the skipped rows on every batch, so a deep export degrades quadratically,
+    and a row inserted mid-export would shift the window and duplicate or skip a row.
+
+    ``max_rows`` is an optional hard cap; the caller is expected to tell the user when
+    it truncates rather than letting a short file look complete.
+    """
+    base_clause, base_params = _scan_filters(
+        user_id=user_id, verdict=verdict, category=category, search=search
+    )
+    cursor: Optional[tuple[str, str]] = None  # (created_at, id) of the last row yielded
+    emitted = 0
+
+    while True:
+        params = dict(base_params)
+        clause = base_clause
+        if cursor is not None:
+            keyset = "(created_at > :cur_at OR (created_at = :cur_at AND id > :cur_id))"
+            clause = f"{base_clause} AND {keyset}" if base_clause else f" WHERE {keyset}"
+            params["cur_at"], params["cur_id"] = cursor
+
+        batch = EXPORT_BATCH
+        if max_rows is not None:
+            remaining = max_rows - emitted
+            if remaining <= 0:
+                return
+            batch = min(batch, remaining)
+        params["limit"] = batch
+
+        rows = db.query(
+            f"SELECT {_LIST_COLUMNS} FROM scans{clause}"
+            " ORDER BY created_at ASC, id ASC LIMIT :limit",
+            params,
+        )
+        if not rows:
+            return
+        for row in rows:
+            yield ScanRow.from_row(row)
+        emitted += len(rows)
+        cursor = (rows[-1]["created_at"], rows[-1]["id"])
+        if len(rows) < batch:
+            return
 
 
 def top_violations(*, user_id: Optional[str] = None, limit: int = 10) -> list[dict]:

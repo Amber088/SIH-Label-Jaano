@@ -11,12 +11,13 @@ manage.py — local administration for the Label Jaano history database.
     python manage.py scans                     recent inspections
     python manage.py report <scan_id> -o r.html   export a print-ready report
     python manage.py stats                     corpus aggregates
+    python manage.py audit --since 7d          who exercised a privilege, and over what
     python manage.py secret                    generate LABEL_JAANO_SECRET
     python manage.py seed --yes                populate a demo corpus
 
 Why a CLI at all, when there is a perfectly good HTTP API?
 
-Because two operations must not be reachable over HTTP, and one is easier without it.
+Because three operations must not be reachable over HTTP, and one is easier without it.
 
 *Creating an administrator* is the first. An admin can read every inspection in the
 corpus, delete any of them, and swap out the rule packs that every verdict is measured
@@ -26,7 +27,13 @@ access on the host instead makes the trust boundary something physical.
 
 *Resetting somebody else's password* is the second, for the same reason.
 
-And *exporting a report* is the third, for a duller reason: during an inspection the
+*Trimming the audit log* is the third. Over HTTP the log is readable by an admin and
+has no DELETE route at all, deliberately: a record that the API it audits can erase is
+not evidence. Retention is still a real requirement, so it is enacted here — where the
+operator has already proved more than a token could — and the purge writes its own
+entry, which survives because its timestamp is necessarily after the cutoff it applied.
+
+And *exporting a report* is the last, for a duller reason: during an inspection the
 useful artifact is a file on disk you can attach to an email, and asking an officer to
 authenticate a browser session to obtain it is friction with no security benefit — the
 shell already proved more than a token ever could.
@@ -42,6 +49,7 @@ import getpass
 import json
 import secrets
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _BACKEND_DIR = Path(__file__).resolve().parent
@@ -239,11 +247,12 @@ def cmd_createuser(args) -> int:
 
 
 def cmd_users(args) -> int:
-    users = store.list_users(limit=args.limit, offset=args.offset)
-    total = store.count_users()
+    # One query for the page and one for the total, not one per account: the old
+    # loop ran a count query per row, which is invisible on a seeded demo and
+    # painful on a real district's register.
+    rows_in, total = store.list_users_page(limit=args.limit, offset=args.offset)
     rows = []
-    for u in users:
-        _, scans = store.list_scans(user_id=u.id, limit=1)
+    for u, scans in rows_in:
         rows.append([
             u.email,
             _short(u.name, 20),
@@ -256,7 +265,7 @@ def cmd_users(args) -> int:
     print(_table(
         ["EMAIL", "NAME", "ROLE", "STATUS", "SCANS", "JOINED", "ID"], rows
     ))
-    shown = len(users)
+    shown = len(rows_in)
     print(f"\n{shown} of {total} account(s)")
     return EXIT_OK
 
@@ -451,7 +460,239 @@ def cmd_delete_scan(args) -> int:
         print("cancelled")
         return EXIT_OK
     store.delete_scan(row.id)
+    # Recorded for the same reason the HTTP delete is: shell access is a stronger
+    # credential than any token, not an exemption from the log. Described from the row
+    # read a moment ago, because after the DELETE there is nothing left to describe.
+    store.audit.record(
+        store.audit.SCAN_DELETE,
+        target=row.id,
+        detail={
+            "owner_id": row.user_id,
+            "verdict": row.verdict,
+            "product_name": row.product_name,
+            "created_at": row.created_at,
+            **_shell_actor_detail(),
+        },
+        **_shell_actor(),
+    )
     print(f"deleted {row.id}")
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- #
+# Audit trail
+# --------------------------------------------------------------------------- #
+def _shell_actor() -> dict:
+    """Identify the operator for an audit entry written from the command line.
+
+    There is no account here — that is the whole premise of this file — so
+    ``actor_id`` stays null and the role column records *how* the operator got in
+    rather than what a role table granted them. Writing ``admin`` would be a lie that
+    matters: reading the log later, "this was done by someone with a shell on the
+    host" and "this was done by an account with the admin role" are different facts
+    with different remedies.
+    """
+    try:
+        who = getpass.getuser()
+    except Exception:  # noqa: BLE001 - no passwd entry (container); not worth failing
+        who = "unknown"
+    return {"actor_id": None, "actor_email": f"{who}@shell", "actor_role": "shell"}
+
+
+def _shell_actor_detail() -> dict:
+    return {"via": "manage.py"}
+
+
+def _parse_when(value: str) -> str:
+    """A cutoff timestamp from either an age (``30d``) or an absolute date.
+
+    Accepts ``90m`` / ``24h`` / ``30d``, a bare ``YYYY-MM-DD``, or a full ISO
+    timestamp. What comes back is compared lexicographically against ``created_at``,
+    which is sound because every stored timestamp is UTC ISO-8601 with fixed width —
+    the string order *is* the chronological order.
+
+    That fixed width is also why a date is re-formatted rather than passed through. An
+    unpadded ``2026-7-1`` sorts *after* every real timestamp of that year, so used
+    verbatim it would match nothing as a ``--since`` and everything as a
+    ``--purge-before``. Round-tripping it through :meth:`strptime` normalises it to
+    ``2026-07-01``, and anything that is not a date at all fails here with a message
+    rather than silently comparing as a string.
+    """
+    text = (value or "").strip()
+    if not text:
+        raise CommandError("a date or age is required")
+
+    unit_seconds = {"m": 60, "h": 3600, "d": 86400}
+    if len(text) > 1 and text[-1].lower() in unit_seconds and text[:-1].isdigit():
+        amount = int(text[:-1])
+        if amount <= 0:
+            raise CommandError(f"{value!r}: the age must be a positive number")
+        moment = datetime.now(timezone.utc) - timedelta(
+            seconds=amount * unit_seconds[text[-1].lower()]
+        )
+        return moment.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            parsed = datetime.strptime(text.rstrip("Z"), fmt)
+        except ValueError:
+            continue
+        if fmt == "%Y-%m-%d":
+            # Midnight UTC on that date; the prefix compare includes the whole day.
+            return parsed.strftime("%Y-%m-%d")
+        return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    raise CommandError(
+        f"cannot read {value!r} as a time. Use an age (30d, 24h, 90m), a date "
+        f"(2026-08-01) or a timestamp (2026-08-01T09:30:00Z)."
+    )
+
+
+def _detail_summary(detail: dict | None, width: int) -> str:
+    """``k=v`` pairs, shortest-first, trimmed to *width*. Full text is in --json."""
+    if not detail:
+        return "-"
+    parts = []
+    for key, value in detail.items():
+        if value is None or value == "" or value == []:
+            continue
+        if isinstance(value, (list, tuple)):
+            value = ",".join(str(v) for v in value)
+        elif isinstance(value, dict):
+            value = json.dumps(value, separators=(",", ":"), default=str)
+        parts.append(f"{key}={value}")
+    return _short(" ".join(parts), width) if parts else "-"
+
+
+def cmd_audit(args) -> int:
+    """Read the privileged-action log, or enact a retention period.
+
+    The log answers one question — who exercised a privilege over what, and when —
+    and it is only useful if it can be read where the operator already is. Over HTTP
+    it is admin-only and deliberately has no DELETE route, so this is the only place
+    an entry can be removed at all, and the removal is itself recorded.
+    """
+    if args.purge_before:
+        return _audit_purge(args)
+
+    actor_id = None
+    if args.actor:
+        actor_id = _find_user(args.actor).id
+    since = _parse_when(args.since) if args.since else None
+
+    entries, total = store.audit.list_entries(
+        actor_id=actor_id, action=args.action, target=args.target,
+        since=since, limit=args.limit, offset=args.offset,
+    )
+
+    if args.json:
+        print(json.dumps([e.to_dict() for e in entries], indent=2))
+        return EXIT_OK
+
+    if args.summary:
+        return _audit_summary(entries, total, since)
+
+    print(_table(
+        ["WHEN", "ACTOR", "ROLE", "ACTION", "TARGET", "DETAIL"],
+        [
+            [
+                e.created_at[:16].replace("T", " "),
+                _short(e.actor_email or "(none)", 26),
+                e.actor_role or "-",
+                e.action,
+                (e.target or "-")[:8],
+                _detail_summary(e.detail, 44),
+            ]
+            for e in entries
+        ],
+    ))
+    print(f"\n{len(entries)} of {total} matching entr{'y' if total == 1 else 'ies'}"
+          + (f" since {since}" if since else ""))
+    if not entries and not (actor_id or args.action or args.target or since):
+        print(
+            "\nThe log is empty. It records privileged actions only — an officer\n"
+            "opening the whole-corpus queue or export, someone reading an inspection\n"
+            "that is not theirs, a deletion, an account change, a rule-pack reload.\n"
+            "A consumer scanning a label and reading their own history is not an event."
+        )
+    return EXIT_OK
+
+
+def _audit_summary(entries, total: int, since: str | None) -> int:
+    """Counts by action and by actor over the page that was fetched."""
+    by_action: dict[str, int] = {}
+    by_actor: dict[str, int] = {}
+    for e in entries:
+        by_action[e.action] = by_action.get(e.action, 0) + 1
+        by_actor[e.actor_email or "(none)"] = by_actor.get(e.actor_email or "(none)", 0) + 1
+    print(_table(
+        ["ACTION", "COUNT"],
+        [[a, str(n)] for a, n in sorted(by_action.items(), key=lambda kv: (-kv[1], kv[0]))],
+    ))
+    print()
+    print(_table(
+        ["ACTOR", "COUNT"],
+        [[a, str(n)] for a, n in sorted(by_actor.items(), key=lambda kv: (-kv[1], kv[0]))],
+    ))
+    span = f" since {since}" if since else ""
+    # Named explicitly: a summary over a page is a summary of the page. Raising --limit
+    # is the fix, and saying so is cheaper than someone drawing a conclusion about the
+    # corpus from the most recent hundred lines of it.
+    print(f"\n{len(entries)} of {total} entr{'y' if total == 1 else 'ies'}{span} "
+          f"(summarised over the {len(entries)} fetched; raise --limit for more)")
+    if entries:
+        print(f"oldest shown {entries[-1].created_at}  ·  newest {entries[0].created_at}")
+    return EXIT_OK
+
+
+def _audit_purge(args) -> int:
+    cutoff = _parse_when(args.purge_before)
+
+    # Counted by subtraction rather than by fetching the doomed rows. ``list_entries``
+    # orders newest-first and has no "before" filter, so a page of it is the wrong end
+    # of the table: on a large log every row in the first page can be *newer* than the
+    # cutoff, and deciding from that page would report "nothing to do" about a purge
+    # that was about to delete thousands of entries.
+    total = store.audit.count_entries()
+    _, surviving = store.audit.list_entries(since=cutoff, limit=1)
+    going = total - surviving
+    if going <= 0:
+        print(f"no audit entries are older than {cutoff}; "
+              f"nothing to do ({total} entr(y/ies) in the log)")
+        return EXIT_OK
+
+    # The oldest row is the last one in newest-first order, so its offset is the total
+    # minus one. The doomed range begins at offset `surviving`, which is where a sample
+    # of what is about to go can be read from.
+    tail, _ = store.audit.list_entries(limit=1, offset=total - 1)
+    oldest = tail[0].created_at if tail else "?"
+    sample, _ = store.audit.list_entries(limit=min(going, 500), offset=surviving)
+    actions = sorted({e.action for e in sample})
+
+    print(f"about to delete {going} of {total} audit entr{'y' if going == 1 else 'ies'}, "
+          f"from {oldest} up to {cutoff}")
+    print("  actions affected: " + ", ".join(actions)
+          + (" (sampled from the newest 500 of them)" if going > len(sample) else ""))
+    if not _confirm(
+        "this is the evidence log; deletions cannot be undone — proceed?",
+        assume_yes=args.yes,
+    ):
+        print("cancelled")
+        return EXIT_OK
+
+    removed = store.audit.purge_before(cutoff)
+    # The purge records itself, and its own entry survives because its timestamp is
+    # necessarily after the cutoff it just applied. So the log can be trimmed to a
+    # retention period without ever losing the fact that it was trimmed — a gap in the
+    # dates with nothing explaining it is what makes a log stop being evidence.
+    store.audit.record(
+        store.audit.AUDIT_PURGE,
+        detail={"cutoff": cutoff, "removed": removed, "spec": args.purge_before,
+                "oldest_removed": oldest, **_shell_actor_detail()},
+        **_shell_actor(),
+    )
+    print(f"deleted {removed} entr{'y' if removed == 1 else 'ies'} older than {cutoff}")
+    print(f"{store.audit.count_entries()} remain, including the record of this purge")
     return EXIT_OK
 
 
@@ -682,6 +923,22 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("delete-scan", cmd_delete_scan, "delete one stored inspection")
     p.add_argument("scan_id")
     p.add_argument("--yes", action="store_true")
+
+    p = add("audit", cmd_audit, "read the privileged-action log (or enact retention)")
+    p.add_argument("--actor", help="only this account's actions (email or id)")
+    p.add_argument("--action", help="exact action, e.g. scans.export or user.role")
+    p.add_argument("--target", help="exact target id (an inspection or account)")
+    p.add_argument("--since", metavar="WHEN",
+                   help="age (30d, 24h, 90m), date (2026-08-01) or ISO timestamp")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--offset", type=int, default=0)
+    p.add_argument("--summary", action="store_true",
+                   help="counts by action and actor instead of the entries")
+    p.add_argument("--json", action="store_true",
+                   help="machine-readable, with each entry's full detail")
+    p.add_argument("--purge-before", metavar="WHEN",
+                   help="DELETE entries older than this, to enact a retention period")
+    p.add_argument("--yes", action="store_true", help="skip the purge confirmation")
 
     add("secret", cmd_secret, "generate a value for LABEL_JAANO_SECRET")
 

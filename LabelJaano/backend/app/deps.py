@@ -47,6 +47,9 @@ __all__ = [
     "user_from_report_ticket",
     "unauthorised",
     "history_scope",
+    "client_ip",
+    "record_audit",
+    "HTTP_422",
     "init_persistence",
     "persistence_ready",
     "PERSISTENCE_DISABLED_ENV",
@@ -55,6 +58,12 @@ __all__ = [
 # Set LABEL_JAANO_NO_DB=1 to run the API as a pure stateless judge — no database file
 # is opened and history endpoints answer 503. Useful for a read-only demo box.
 PERSISTENCE_DISABLED_ENV = "LABEL_JAANO_NO_DB"
+
+#: 422, spelled portably. Starlette renamed the constant (``..._UNPROCESSABLE_ENTITY``
+#: -> ``..._UNPROCESSABLE_CONTENT``) and now warns on every use of the old one, but the
+#: new name does not exist on the older releases ``requirements.txt`` still allows. The
+#: wire value never changed, so resolving the name once here keeps both installs quiet.
+HTTP_422 = getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", 422)
 
 # auto_error=False is what makes anonymity possible: without it FastAPI would 403 any
 # request lacking the header before our own code ever runs.
@@ -260,3 +269,39 @@ def client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Audit
+# --------------------------------------------------------------------------- #
+def record_audit(
+    action: str,
+    user: Optional[User],
+    request: Optional[Request] = None,
+    *,
+    target: Optional[str] = None,
+    detail: Optional[dict] = None,
+) -> None:
+    """Append an audit entry for a privileged action by *user*.
+
+    A thin wrapper over :func:`store.audit.record` that exists to stop three details
+    being re-derived at every call site: the actor's role is normalised through
+    :meth:`Role.parse` (so the log never contains a raw database string that no longer
+    parses), the request address is folded into ``detail`` rather than each route
+    remembering to add it, and the ``user is None`` case is handled here — a
+    ticket-authenticated report read has no session, and dropping the entry would be
+    worse than recording one with an empty actor.
+
+    Never raises; :func:`store.audit.record` swallows its own failures.
+    """
+    payload = dict(detail or {})
+    if request is not None:
+        payload.setdefault("ip", client_ip(request))
+    store.audit.record(
+        action,
+        actor_id=user.id if user else None,
+        actor_email=user.email if user else "",
+        actor_role=Role.parse(user.role).value if user else "",
+        target=target,
+        detail=payload or None,
+    )

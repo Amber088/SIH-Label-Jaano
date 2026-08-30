@@ -41,12 +41,14 @@ Interactive docs are then at  http://127.0.0.1:8000/docs
 from __future__ import annotations
 
 import json
+import os
 import sys
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -74,9 +76,11 @@ from auth.roles import Permission  # noqa: E402
 from store.users import User  # noqa: E402
 
 from . import deps  # noqa: E402
-from .routers import auth_routes, history  # noqa: E402
+from . import ratelimit  # noqa: E402
+from .routers import admin, auth_routes, history  # noqa: E402
 
 from .schemas import (  # noqa: E402
+    CategoryOut,
     PackInfo,
     SavedReportOut,
     ScanRequest,
@@ -84,9 +88,22 @@ from .schemas import (  # noqa: E402
 
 __version__ = "0.2.0"
 
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Open the history database. Never fatal — see :func:`deps.init_persistence`.
+
+    Lifespan rather than the deprecated ``@app.on_event("startup")``: on_event is
+    slated for removal, and it warns on every import.
+    """
+    deps.init_persistence()
+    yield
+
+
 app = FastAPI(
     title="Label Jaano — Compliance API",
     version=__version__,
+    lifespan=_lifespan,
     description=(
         "Checks packaged-commodity labels against the Legal Metrology (Packaged "
         "Commodities) Rules, 2011 and stacked category packs (e.g. FSSAI food). "
@@ -97,11 +114,42 @@ app = FastAPI(
     ),
 )
 
-# The dashboard / mobile app live on other origins; allow them all in dev.
-# Tighten allow_origins to the deployed frontend URLs before production.
+# Registered *before* CORS so that CORS ends up wrapping it. Starlette applies
+# middleware in reverse registration order — the last one added is the outermost — so
+# the limiter has to go on first to sit inside. That ordering is load-bearing rather
+# than stylistic: the 429 is written by the limiter and short-circuits the request, so
+# if the limiter were outermost that response would never pass back out through
+# CORSMiddleware, would carry no ``Access-Control-Allow-Origin``, and a browser would
+# report it as a network error instead of showing the rate-limit message. Silent, and
+# only reproducible once a real client is already being throttled.
+app.add_middleware(ratelimit.RateLimitMiddleware)
+
+# The Flutter app, the officer console and consumer mode all live on other origins,
+# so cross-origin requests are the normal case rather than the exception.
+#
+# The default is ``*``, which is what a demo and a LAN-attached phone need. It is
+# safe *only* because ``allow_credentials`` is False: no cookie ever rides along, and
+# this API authenticates with an ``Authorization: Bearer`` header the browser will not
+# attach on its own. A hostile page can therefore call these endpoints, but only with
+# a token it already has — it cannot borrow the signed-in user's session the way a
+# cookie-authenticated API would let it.
+#
+# Set ``LABEL_JAANO_CORS_ORIGINS`` to a comma-separated allow-list for a real
+# deployment, e.g. ``https://console.example.gov.in,https://app.example.gov.in``.
+CORS_ORIGINS_ENV = "LABEL_JAANO_CORS_ORIGINS"
+
+
+def _cors_origins() -> list[str]:
+    raw = os.environ.get(CORS_ORIGINS_ENV, "").strip()
+    if not raw:
+        return ["*"]
+    origins = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    return origins or ["*"]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,12 +157,7 @@ app.add_middleware(
 
 app.include_router(auth_routes.router)
 app.include_router(history.router)
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    """Open the history database. Never fatal — see :func:`deps.init_persistence`."""
-    deps.init_persistence()
+app.include_router(admin.router)
 
 
 # --------------------------------------------------------------------------- #
@@ -179,6 +222,83 @@ def get_rulepack(pack_id: str) -> dict:
             detail=f"unknown pack_id '{pack_id}'. known: {sorted(packs)}",
         )
     return packs[pack_id]
+
+
+# The catch-all category. Every pack whose ``applies_when`` is ``{"always": true}``
+# still applies to it — a commodity we cannot classify is not a commodity exempt from
+# the Legal Metrology rules — so it is a real, scoreable choice, not a null.
+FALLBACK_CATEGORY = "other"
+
+# Category ids are declared by the packs, so labels have to be derived. Title-casing
+# the id is right for most of them ("packaged_food" -> "Packaged food"); this table
+# covers only the ones where that reads badly or loses meaning. Deliberately not a
+# field in the pack JSON: a pack is regulation-as-data and shared by every client,
+# whereas a display string is a UI concern that would then need translating.
+_CATEGORY_LABELS = {
+    "other": "Other / not sure",
+    "food_special_dietary": "Food for special dietary use",
+    "food_special_medical": "Food for special medical purpose",
+    "mrp": "Retail price declaration",
+    "fmcg": "FMCG",
+}
+
+
+def _category_label(cid: str) -> str:
+    if cid in _CATEGORY_LABELS:
+        return _CATEGORY_LABELS[cid]
+    return cid.replace("_", " ").capitalize()
+
+
+@app.get("/categories", response_model=list[CategoryOut], tags=["rulepacks"],
+         summary="Every product category the loaded packs can score")
+def list_categories() -> list[CategoryOut]:
+    """Category discovery, so clients stop hardcoding the list.
+
+    The set is computed from the packs actually on disk — the union of every
+    ``applies_when.category_in`` — rather than maintained by hand, which means
+    dropping a new pack into ``rulepacks/`` and calling ``POST /reload`` makes its
+    categories selectable without shipping a new mobile build. Before this endpoint
+    existed the app shipped four hardcoded categories while the packs already covered
+    a dozen, so most of the rule corpus was unreachable from the UI.
+
+    ``declarations`` is how many rules apply to this category *after* merging and
+    id-override — not the sum of the packs' own counts, which would double-count
+    anything a category pack overrides. Read it as a measure of how much regulation the
+    category attracts, useful for ordering the list; it is deliberately not a promise
+    about ``summary.checks_total``, which differs in both directions because one
+    declaration can raise several checks and a conditional one may raise none.
+
+    Auto-detection is the *absence* of a category (omit it from the scan request and
+    the extractor infers one); it is not listed here because it is not a category.
+    """
+    packs = get_packs()
+
+    discovered: set[str] = {FALLBACK_CATEGORY}
+    for pack in packs:
+        discovered.update((pack.applies_when or {}).get("category_in") or [])
+
+    by_id = {p.pack_id: p for p in packs}
+    out: list[CategoryOut] = []
+    for cid in discovered:
+        ruleset = build_ruleset(cid, packs)
+        out.append(CategoryOut(
+            id=cid,
+            label=_category_label(cid),
+            packs=ruleset.packs_applied,
+            declarations=len(ruleset.declarations),
+            # Walked in packs_applied order (base packs first, per build_ruleset) and
+            # de-duplicated with dict.fromkeys rather than a set, so the base regulator
+            # leads and the order is stable between calls instead of hash-dependent.
+            authorities=list(dict.fromkeys(
+                by_id[pid].authority for pid in ruleset.packs_applied
+                if pid in by_id and by_id[pid].authority
+            )),
+        ))
+
+    # Richest category first — that is the one a picker should default to — with the
+    # catch-all pinned last regardless of how many declarations the base pack carries.
+    out.sort(key=lambda c: (c.id == FALLBACK_CATEGORY, -c.declarations, c.id))
+    return out
 
 
 @app.post("/scan", response_model=SavedReportOut, tags=["scan"],
@@ -395,7 +515,8 @@ async def scan_image(
 @app.post("/reload", tags=["meta"],
           summary="Reload rule packs from disk (admin)")
 def reload_packs(
-    _: User = Depends(deps.require_permission(Permission.RELOAD_RULEPACKS)),
+    request: Request,
+    admin: User = Depends(deps.require_permission(Permission.RELOAD_RULEPACKS)),
 ) -> dict:
     """Drop the cached packs so the next request re-reads ``rulepacks/`` from disk.
 
@@ -411,6 +532,15 @@ def reload_packs(
     get_packs.cache_clear()
     get_pack_dicts.cache_clear()
     packs = get_packs()  # eagerly reload so errors surface here, not on next scan
+    # Audited because this is the highest-leverage write in the system: it changes the
+    # rules every subsequent verdict is measured against, and two scans of the same
+    # label either side of it can legitimately disagree. The pack ids and versions go
+    # into the entry so a disputed verdict can be tied back to the corpus in force.
+    deps.record_audit(
+        store.audit.PACKS_RELOAD, admin, request,
+        detail={"packs_loaded": len(packs),
+                "packs": {p.pack_id: p.version for p in packs}},
+    )
     return {
         "status": "reloaded",
         "packs_loaded": len(packs),

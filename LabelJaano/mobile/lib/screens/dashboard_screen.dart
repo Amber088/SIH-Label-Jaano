@@ -468,7 +468,7 @@ class _SignInNudge extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Palette.brass.withOpacity(0.4)),
+            border: Border.all(color: Palette.brass.withValues(alpha: 0.4)),
           ),
           child: Row(
             children: [

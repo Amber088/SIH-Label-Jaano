@@ -13,7 +13,9 @@ the font-height math is exercised against real geometry — not hand-waved numbe
 """
 from __future__ import annotations
 
+import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -176,6 +178,103 @@ def test_fuse_context_override_wins():
     cal = [CalibrationResult(method="none")]
     scan = fuse(ex, ocr, cal, context_overrides={"is_imported": False})
     assert scan["context"]["is_imported"] is False  # officer input beats the LLM
+
+
+# --------------------------------------------------------------------------- #
+# The vision call's deadline (no network: the backend is a stand-in)
+# --------------------------------------------------------------------------- #
+def test_the_vision_call_is_bounded_by_our_own_clock():
+    """A backend that ignores its own timeout is still abandoned at the budget.
+
+    The failure this prevents was a real one: the phone gave up after ninety seconds
+    and said "the server took too long to respond" while the SDK underneath kept
+    retrying a call that could not succeed — measured still going after four minutes.
+    "Too long" is the least useful answer available, because it names neither the
+    network nor the model nor the key. Losing the race on purpose lets us name them.
+    """
+    import time
+
+    from pipeline import gemini
+
+    def ignores_every_timeout(images, prompt, model, key):
+        time.sleep(30)
+        return '{"fields": {}}'
+
+    with _stub_backend(ignores_every_timeout), _budget("1"):
+        started = time.monotonic()
+        try:
+            gemini.extract_fields([b"\xff\xd8\xff0"], ["mrp"], [], ["other"], mock=False)
+            raise AssertionError("a 30s backend returned inside a 1s budget")
+        except RuntimeError as exc:
+            elapsed = time.monotonic() - started
+            assert elapsed < 5, f"waited {elapsed:.1f}s against a 1s budget"
+            # The message has to be actionable: every suspect, plus the knob to turn.
+            assert "did not answer within 1s" in str(exc), exc
+            assert "network" in str(exc) and "model this key can call" in str(exc), exc
+            assert gemini.TIMEOUT_ENV in str(exc), exc
+
+
+def test_a_real_sdk_error_is_not_replaced_by_the_timeout_message():
+    """The deadline re-raises what the SDK said, verbatim.
+
+    "API key not valid" is the most useful sentence the API ever returns; running the
+    call on another thread must not swallow it, reword it, or turn it into a timeout.
+    """
+    from pipeline import gemini
+
+    def rejects_the_key(images, prompt, model, key):
+        raise ValueError("API key not valid. Pass a valid API key.")
+
+    with _stub_backend(rejects_the_key):
+        try:
+            gemini.extract_fields([b"\xff\xd8\xff0"], ["mrp"], [], ["other"], mock=False)
+            raise AssertionError("the rejected key did not raise")
+        except ValueError as exc:
+            assert "API key not valid" in str(exc), exc
+
+
+def test_the_timeout_budget_survives_a_nonsense_env_value():
+    """An unparseable or non-positive budget keeps the default, never zero.
+
+    Zero would abandon every call instantly, turning one typo in a deployment script
+    into a scanner that cannot scan.
+    """
+    from pipeline import gemini
+
+    for bad in ("", "   ", "abc", "0", "-5", "1e", "None"):
+        with _budget(bad):
+            assert gemini._timeout_seconds() == gemini.DEFAULT_TIMEOUT_SECONDS, bad
+    with _budget("12.5"):
+        assert gemini._timeout_seconds() == 12.5
+
+
+@contextmanager
+def _stub_backend(fn):
+    """Swap in *fn* as the SDK backend, and a key so the real one is never needed."""
+    from pipeline import gemini
+
+    was_select, was_key = gemini._select_backend, gemini._api_key
+    gemini._select_backend, gemini._api_key = (lambda: fn), (lambda: "test-key")
+    try:
+        yield
+    finally:
+        gemini._select_backend, gemini._api_key = was_select, was_key
+
+
+@contextmanager
+def _budget(value: str):
+    """Set (and restore) the per-call timeout env var."""
+    from pipeline import gemini
+
+    was = os.environ.get(gemini.TIMEOUT_ENV)
+    os.environ[gemini.TIMEOUT_ENV] = value
+    try:
+        yield
+    finally:
+        if was is None:
+            os.environ.pop(gemini.TIMEOUT_ENV, None)
+        else:
+            os.environ[gemini.TIMEOUT_ENV] = was
 
 
 # --------------------------------------------------------------------------- #

@@ -35,10 +35,12 @@ backend/
 ├── app/                  # the HTTP API — FastAPI wrapper around the engine
 │   ├── schemas.py    # pydantic request/response models (Swagger docs)
 │   ├── deps.py       # shared dependencies: current account, role gates, DB gate
-│   ├── main.py       # meta + rulepack + scan endpoints
+│   ├── ratelimit.py  # sliding-window limiter (auth / vision / default buckets)
+│   ├── main.py       # meta + rulepack + category + scan endpoints
 │   └── routers/
 │       ├── auth_routes.py  # /auth/config /register /login /me /refresh
-│       └── history.py      # /scans… /stats + the shareable report link
+│       ├── admin.py        # /admin/users… + /admin/audit (administrator only)
+│       └── history.py      # /scans… /scans.csv /stats + the shareable report link
 ├── auth/                 # accounts and tokens — stdlib only
 │   ├── passwords.py  # PBKDF2-HMAC-SHA256 hashing, constant-time verify
 │   ├── tokens.py     # HS256 JWT-shaped session tokens (purpose "api")
@@ -48,7 +50,8 @@ backend/
 ├── store/                # persistence — sqlite3, no ORM
 │   ├── db.py         # connection, schema, migrations, WAL, path resolution
 │   ├── users.py      # account CRUD
-│   └── scans.py      # filed inspections, filtered listing, corpus aggregates
+│   ├── audit.py      # the privileged-action log; identity frozen at write time
+│   └── scans.py      # filed inspections, filtered listing, export, aggregates
 ├── reports/
 │   └── inspection_html.py  # print-ready inspection report (stdlib templating)
 ├── samples/
@@ -64,8 +67,12 @@ backend/
 │   ├── test_store.py     # schema, migrations, listing, aggregates (no deps)
 │   ├── test_auth.py      # hashing, tokens, tickets, roles (no deps)
 │   ├── test_reports.py   # the HTML report renderer (no deps)
+│   ├── test_export.py    # /scans.csv + /categories via TestClient
+│   ├── test_ratelimit.py # the limiter: buckets, identity, headers, fail-open
+│   ├── test_manage.py    # manage.py: retention purge, shell actor, audit reader
+│   ├── apiclient.py      # shared HTTP fixtures + the standalone runner
 │   └── test_api.py       # API tests via TestClient
-├── manage.py             # admin CLI: accounts, roles, history, reports, demo seed
+├── manage.py             # admin CLI: accounts, roles, history, reports, audit, seed
 ├── extract.py            # CLI: photo(s) -> scan-input (and optionally a verdict)
 └── run_scan.py           # CLI: scan-input JSON -> verdict
 ```
@@ -91,7 +98,7 @@ drop straight into CI or a batch pipeline.
 
 ## Run it as an HTTP API
 
-The React dashboard, the Flutter app, and consumer mode all talk to one service.
+The Flutter app, the officer console and consumer mode all talk to one service.
 
 ```bash
 cd backend
@@ -109,26 +116,38 @@ Interactive Swagger docs (try requests in the browser): **http://127.0.0.1:8000/
 | GET    | `/health`         | —    | liveness, packs loaded, whether history is available  |
 | GET    | `/rulepacks`      | —    | summary of every loaded rule pack                     |
 | GET    | `/rulepacks/{id}` | —    | full raw JSON of one pack (audit what's enforced)     |
+| GET    | `/categories`     | —    | the product categories a client may offer, with hints |
 | POST   | `/scan`           | opt. | judge one normalized label (JSON) → `ComplianceReport`|
 | POST   | `/extract`        | —    | label **photo(s)** → normalized scan-input JSON       |
 | POST   | `/scan/image`     | opt. | label **photo(s)** → `ComplianceReport` (extract+judge)|
-| POST   | `/reload`         | —    | re-read `rulepacks/` — hot-apply a gazette update     |
+| POST   | `/reload`         | admin | re-read `rulepacks/` — hot-apply a gazette update    |
 | GET    | `/auth/config`    | —    | what this server accepts at sign-up (draw the form)   |
 | POST   | `/auth/register`  | —    | create an account → token (201)                       |
 | POST   | `/auth/login`     | —    | email + password → token                              |
 | GET    | `/auth/me`        | ✔    | the signed-in account                                 |
 | POST   | `/auth/refresh`   | ✔    | slide an active session forward                       |
 | GET    | `/scans`          | ✔    | inspection history, filtered + paged (scope by role)  |
-| GET    | `/scans/{id}`     | ✔    | one filed inspection, report body included            |
+| GET    | `/scans.csv`      | ✔    | the same list as a spreadsheet, same filters, streamed |
+| GET    | `/scans/{id}`     | ✔    | one filed inspection, report body included           |
 | DELETE | `/scans/{id}`     | ✔    | delete one filed inspection (204)                     |
 | POST   | `/scans/{id}/share` | ✔  | mint a short-lived link to this one report            |
 | GET    | `/scans/{id}/report.html` | ticket | print-ready inspection report (opens in a browser) |
 | GET    | `/stats`          | ✔    | corpus aggregates incl. corpus-wide `top_violations`  |
+| GET    | `/admin/users`    | admin | every account, with each one's inspection count      |
+| POST   | `/admin/users`    | admin | create an account at any role (201)                  |
+| PATCH  | `/admin/users/{id}` | admin | change an account's role and/or enabled state      |
+| GET    | `/admin/audit`    | admin | the audit trail — privileged reads and writes        |
 
 “Auth” above: **✔** needs a bearer session token, **opt.** works either way (with a
 token the scan is filed and a `scan_id` comes back; without one you still get the
-verdict and nothing is recorded), **ticket** takes the scoped ticket minted by
-`/share` *instead of* a session token — see [Sharing a report](#sharing-a-report).
+verdict and nothing is recorded), **admin** needs a token whose account holds the
+`administrator` role, **ticket** takes the scoped ticket minted by `/share` *instead
+of* a session token — see [Sharing a report](#sharing-a-report).
+
+The role-scoped endpoints are scoped, not switched: an officer calling `/scans`,
+`/scans.csv` or `/stats` sees the whole corpus and a consumer sees only their own
+rows, from the same route and the same WHERE builder — so the spreadsheet can never
+disagree with the screen. Every whole-corpus read is written to the audit trail.
 
 
 ```bash
@@ -144,8 +163,8 @@ curl -s -X POST http://127.0.0.1:8000/scan \
      -H "Content-Type: application/json" \
      -d @samples/bad_label.json           # -> {"verdict":"non_compliant",...}
 
-# after editing a JSON pack, hot-reload without restarting
-curl -s -X POST http://127.0.0.1:8000/reload
+# after editing a JSON pack, hot-reload without restarting (administrator token)
+curl -s -X POST http://127.0.0.1:8000/reload -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 Run the API tests (no server needed — they use an in-process test client):
@@ -157,6 +176,29 @@ python3 tests/test_api.py       # or standalone
 
 CORS is open (`*`) for local development — tighten `allow_origins` in `app/main.py`
 to your deployed frontend URLs before production.
+
+### Rate limiting
+
+Every request passes a sliding-window limiter before it reaches a route. Counting is
+per account once a token verifies, and otherwise per client address (the first
+`X-Forwarded-For` hop, so one district office is not one bucket). Three budgets:
+
+| Bucket    | Covers                              | Default  | Override                  |
+|-----------|-------------------------------------|----------|---------------------------|
+| `auth`    | `/auth/login`, `/auth/register`      | `20/60`  | `LABEL_JAANO_RL_AUTH`     |
+| `vision`  | `/extract`, `/scan/image`            | `30/60`  | `LABEL_JAANO_RL_VISION`   |
+| `default` | everything else                      | `600/60` | `LABEL_JAANO_RL_DEFAULT`  |
+
+Values are `requests/seconds`; anything unparseable keeps the default rather than
+becoming unlimited. `LABEL_JAANO_RATELIMIT=off` disables the limiter entirely.
+Responses carry `X-RateLimit-Limit`/`-Remaining`/`-Reset`, and a 429 carries
+`Retry-After`. The `auth` budget is the one that matters: without it, a login endpoint
+is a password oracle that answers as fast as it is asked.
+
+Two honest limits. The counters live in this process's memory, so behind *N* uvicorn
+workers each gets its own allowance — a factor-of-workers slack, not a hole, since the
+budgets are set for a district office rather than tuned to a single request. And the
+limiter fails open: if its own bookkeeping raises, the request is served.
 
 ## Scan from a photo (the extraction pipeline)
 
@@ -208,7 +250,7 @@ python3 extract.py front.jpg back.jpg --evaluate \
     --reference '{"type":"card","width_mm":85.6,"bbox":[x,y,w,h]}'
 ```
 
-The heavy deps (`google-generativeai`, `paddleocr`, `paddlepaddle`, `opencv-python`,
+The heavy deps (`google-genai`, `paddleocr`, `paddlepaddle`, `opencv-python`,
 `pillow`, `numpy`) are **optional** — imported lazily, only when a real (non-mock) call
 runs. The engine and mock pipeline never touch them.
 
@@ -273,12 +315,18 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8000/stats
 |------------|----------------------------|-----------------------------------------------|
 | `consumer` | their own inspections      | open sign-up (the default)                    |
 | `officer`  | **every** filed inspection | sign-up **with** the shared enrolment code    |
-| `admin`    | every filed inspection     | `manage.py createuser` / `manage.py role` only|
+| `admin`    | every filed inspection, plus accounts and the audit trail | another admin via `POST /admin/users` or `PATCH /admin/users/{id}`; the **first** one only by `manage.py createuser` |
 
 `/scans` and `/stats` report the scope they actually searched (`"own"` / `"all"`), so
 the client states whose records it is showing rather than inferring it from the role.
 Another account's inspection answers **404**, not 403 — a consumer cannot use error
 codes to discover that a record exists.
+
+The first administrator has to come from the shell, because an HTTP route that could
+mint one without already having one would be the whole access-control model's back
+door. After that admins manage each other over the API — except that the last enabled
+administrator cannot demote or disable themselves, which would leave the deployment
+with no way back in but a shell.
 
 ### Sharing a report
 
@@ -298,6 +346,25 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" \
 Open that URL in a browser and print to PDF. `manage.py report <scan_id> -o out.html`
 renders the same document offline.
 
+### Exporting the register
+
+`GET /scans.csv` takes the same filters as `/scans` and streams a spreadsheet of
+whatever that call would have returned — same WHERE builder, same role scoping, so the
+file cannot disagree with the screen an officer just read. Rows come out oldest-first:
+a register reads forward in time.
+
+```bash
+curl -sOJ "http://127.0.0.1:8000/scans.csv?verdict=non_compliant&category=packaged_food" \
+     -H "Authorization: Bearer $TOKEN"
+```
+
+The filename states the scope it was taken at (`-own-` or `-all-`), so two exports
+cannot be confused later. The file is written for Excel on Windows — UTF-8 with a BOM
+and CRLF line endings, which is what makes Devanagari product names survive a
+double-click. `max_rows` caps the export; hitting the cap appends a `# TRUNCATED`
+comment line, so a short file is never silently short. Whole-corpus exports are
+recorded in the audit trail with the filters that produced them.
+
 ### Environment
 
 | Variable | Default | Effect |
@@ -309,6 +376,14 @@ renders the same document offline.
 | `LABEL_JAANO_MOCK` | unset | `1` forces the offline extraction mock (see above) |
 | `LABEL_JAANO_RULEPACKS` | `../rulepacks` | where to load the JSON packs from |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | unset | enables the real vision-LLM read |
+| `LABEL_JAANO_GEMINI_MODEL` | `gemini-3.6-flash` | which vision model to call |
+| `LABEL_JAANO_GEMINI_SDK` | unset (auto) | pin the client: `new` (`google-genai`, preferred) or `legacy` (the retired `google-generativeai`). Auto prefers `new`. |
+| `LABEL_JAANO_GEMINI_TIMEOUT` | `60` | seconds to let one vision call run. Enforced on **our** clock, not the SDK's: both SDKs layer retry-with-backoff and will keep an unroutable host or an unknown model name alive for minutes — measured four. The phone gives up at 90s with a useless "took too long", so the server bounds itself below that on purpose and answers with the real reason instead. Unparseable or non-positive keeps the default. |
+| `LABEL_JAANO_RATELIMIT` | unset | `off` disables the sliding-window limiter entirely |
+| `LABEL_JAANO_RL_AUTH` | `20/60` | login/register budget, `requests/seconds`. An unparseable value keeps the default rather than becoming unlimited. |
+| `LABEL_JAANO_RL_VISION` | `30/60` | `/extract` and `/scan/image` — these cost a paid model call |
+| `LABEL_JAANO_RL_DEFAULT` | `600/60` | everything else |
+| `LABEL_JAANO_CORS_ORIGINS` | unset (`*`) | comma-separated browser allow-list. Set it for a real deployment; the open default is safe only because `allow_credentials` is off, so no cookie ever rides a cross-origin call. |
 
 Session tokens last 12 hours — one inspection shift — and `POST /auth/refresh` slides
 an active one forward.
@@ -329,12 +404,45 @@ scans         list stored inspections (--user --verdict --category --search)
 report        export one inspection as a print-ready HTML report
 stats         corpus aggregates
 delete-scan   delete one stored inspection
+audit         read the privileged-action log, or enact a retention period
 secret        generate a value for LABEL_JAANO_SECRET
 seed          populate a demo corpus for a walkthrough
 ```
 
 Passwords come from a prompt, or `--password-stdin` for scripts. `--password` exists
 and says so in its own help text: it is visible in shell history and `ps`.
+
+Three operations are reachable *only* here, by design: minting an administrator,
+resetting a password, and deleting from the audit log. There is no HTTP route for any
+of them, so they cost shell access on the host rather than a stolen token.
+
+#### The audit trail
+
+Every privileged action is recorded — including privileged **reads**, because an
+officer opening someone else's inspection is the event, not just a change to it. The
+actor's email and role are copied into the row at write time rather than joined from
+`users` on read: a later role change or account deletion must not rewrite history.
+
+```bash
+python3 manage.py audit                              # newest first, 50 at a time
+python3 manage.py audit --summary                    # counts by action and by actor
+python3 manage.py audit --json                       # full detail, nothing trimmed
+python3 manage.py audit --actor you@gov.in --since 7d
+python3 manage.py audit --action scans.export --target <scan_id>
+```
+
+Retention is explicit — nothing expires on its own, because a log that quietly
+deletes itself is worse than none, since it still looks complete:
+
+```bash
+python3 manage.py audit --purge-before 365d --yes    # or a date: 2025-08-01
+```
+
+The purge prints what it is about to remove and records itself, so a trimmed log still
+says that it was trimmed. Without `--yes` and without a terminal it refuses rather than
+assuming consent. Shell commands are logged as `actor_role=shell` with a null
+`actor_id`: "someone had a shell on the host" and "an account with the admin role did
+this" are different facts, and only one of them is fixed by changing a password.
 
 ```bash
 python3 tests/test_store.py && python3 tests/test_auth.py && python3 tests/test_reports.py

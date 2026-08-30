@@ -22,7 +22,7 @@ class VerdictBanner extends StatelessWidget {
       decoration: BoxDecoration(
         color: v.tint,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: v.color.withOpacity(0.35)),
+        border: Border.all(color: v.color.withValues(alpha: 0.35)),
       ),
       // IntrinsicHeight gives the Row a bounded height so the stretched colour
       // spine can size to the content. Without it, CrossAxisAlignment.stretch

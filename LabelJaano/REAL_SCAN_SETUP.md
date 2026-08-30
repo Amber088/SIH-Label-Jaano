@@ -37,7 +37,7 @@ cd ~/Desktop/SIH/LabelJaano/backend
 export GEMINI_API_KEY="AIza...your key..."
 
 # (first time only) make sure Gemini + image libs are installed
-python3 -m pip install "google-generativeai>=0.7" "pillow>=10.0"
+python3 -m pip install "google-genai>=1.0" "pillow>=10.0"
 
 # start the API, reachable from your phone on the LAN
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

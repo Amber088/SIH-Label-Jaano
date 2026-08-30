@@ -76,6 +76,23 @@ def fuse(
                 entry["height_mm"] = h_mm
         fields_out[decl_id] = entry
 
+    # ---- derived: date_marking ----
+    # FSS date marking (Reg. 2.3) is enforced as ONE declaration covering both the
+    # manufacture date and the best-before/use-by date, while Legal Metrology splits
+    # them into two (Rule 6(1)(d) and 6(1)(da)). The extractor reads the label the way
+    # it is printed — two separate declarations — so compose the FSSAI view from them.
+    # Without this, a correctly-dated label fails the critical Reg. 2.3 presence check
+    # while both Legal Metrology date checks pass on the very same values.
+    if "date_marking" not in fields_out:
+        sources = [fields_out[k] for k in ("manufacture_date", "best_before")
+                   if fields_out.get(k, {}).get("value")]
+        if sources:
+            derived: dict = {"value": " ".join(s["value"] for s in sources)}
+            confidences = [s["confidence"] for s in sources if "confidence" in s]
+            if confidences:
+                derived["confidence"] = min(confidences)
+            fields_out["date_marking"] = derived
+
     # ---- raw_text: union of OCR transcription + LLM transcription (max recall) ----
     ocr_text = " ".join(r.full_text for r in ocr_results if r.full_text).strip()
     raw_text = " ".join(t for t in (ocr_text, extraction.raw_text) if t).strip()
