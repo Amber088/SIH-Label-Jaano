@@ -53,6 +53,8 @@ from apiclient import (  # noqa: E402
 import apiclient  # noqa: E402
 import store  # noqa: E402
 
+from fastapi.testclient import TestClient  # noqa: E402
+
 from app import deps  # noqa: E402
 from auth.registration import OFFICER_CODE_ENV  # noqa: E402
 
@@ -102,6 +104,41 @@ def test_requests_are_logged():
         assert r.status_code == 200, r.text
     lines = [rec.getMessage() for rec in records]
     assert any("GET" in m and "/health" in m and "200" in m for m in lines), lines
+
+
+def test_an_unhandled_error_becomes_a_json_500_that_leaks_nothing():
+    """A bug in a handler must surface as the one JSON error shape, never a stack trace.
+
+    Every deliberate error this API raises is ``{"detail": ...}`` and the clients read
+    exactly that shape. Before the global handler, an *unexpected* error escaped as
+    Starlette's plain-text "Internal Server Error" — unparseable JSON to the mobile
+    client, which then showed an unrelated "unexpected response shape". This checks the
+    crash now gets the same envelope, that the exception's own text (a path, here) never
+    reaches the caller, and that the real cause is written to the server log instead.
+    """
+    from app import main
+
+    # raise_server_exceptions=False so the client returns the 500 rather than re-raising
+    # the bug into the test; and a route made to fail in a way no HTTPException covers.
+    probe = TestClient(main.app, raise_server_exceptions=False)
+    original = main.get_packs
+
+    def boom():
+        raise RuntimeError("secret detail: db at /var/secret/labeljaano.db")
+
+    main.get_packs = boom
+    try:
+        with _capture_logs("labeljaano.error") as records:
+            r = probe.get("/rulepacks")
+    finally:
+        main.get_packs = original
+
+    assert r.status_code == 500, r.text
+    assert r.json() == {"detail": "Internal server error"}, r.text  # JSON, not plain text
+    assert "secret" not in r.text and "/var/secret" not in r.text  # no internals leak
+    errors = [rec for rec in records if rec.levelno >= logging.ERROR]
+    assert errors, "an unhandled error logged nothing at ERROR"
+    assert "/rulepacks" in errors[0].getMessage(), errors[0].getMessage()
 
 
 def test_health_ok():

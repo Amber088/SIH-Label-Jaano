@@ -130,9 +130,12 @@ class RequestLogMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         except Exception:
+            # The access line for a crash. The traceback itself is left to the app's
+            # exception handler (app.main), which has the request and logs it once with
+            # exc_info — logging .exception() here too would print the same stack twice.
             elapsed_ms = (time.perf_counter() - started) * 1000
-            self.log.exception("%s %s -> unhandled error after %.0fms",
-                               method, path, elapsed_ms)
+            self.log.error("%s %s -> unhandled error after %.0fms",
+                           method, path, elapsed_ms)
             raise
 
         elapsed_ms = (time.perf_counter() - started) * 1000

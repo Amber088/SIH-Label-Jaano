@@ -51,6 +51,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Make the sibling ``rule_engine`` package importable whether the app is started
 # from backend/ (``uvicorn app.main:app``) or as a module — parents[1] == backend/.
@@ -95,6 +96,7 @@ __version__ = "0.2.0"
 logconfig.setup_logging()
 _scan_log = logconfig.get_logger("scan")
 _store_log = logconfig.get_logger("store")
+_error_log = logconfig.get_logger("error")
 
 
 @asynccontextmanager
@@ -121,6 +123,30 @@ app = FastAPI(
         "inspection report, and (as an officer) see aggregates across every scan."
     ),
 )
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Give every *unexpected* error the one JSON shape the clients already parse.
+
+    Only genuine bugs reach here. FastAPI still answers a deliberately-raised
+    ``HTTPException`` with its ``{"detail": ...}``, request validation with a 422, and the
+    rate limiter with its 429 — all JSON, all handled before this. What used to fall
+    through was the unforeseen error (a ``None`` where a dict was assumed, a driver that
+    threw): Starlette turned that into a *plain-text* ``Internal Server Error``. The
+    mobile client and the console read every error body as JSON ``detail``, so the one
+    response they could not parse surfaced to the user as an unrelated "unexpected
+    response shape from the server" — the true cause nowhere in sight. This hands the
+    crash the same envelope as every other error: ``{"detail": "Internal server error"}``.
+
+    The exception's own text is logged, never returned. A stack message can carry a file
+    path, a SQL fragment or a token; the caller has no use for it and it is exactly what
+    an attacker probes for. The full traceback, with the method and path, goes to the
+    server log (and ``LABEL_JAANO_LOG_FILE`` if set) for whoever is on call.
+    """
+    _error_log.error("unhandled error on %s %s", request.method, request.url.path,
+                     exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # Registered *before* CORS so that CORS ends up wrapping it. Starlette applies
 # middleware in reverse registration order — the last one added is the outermost — so
