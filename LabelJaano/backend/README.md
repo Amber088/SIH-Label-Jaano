@@ -384,6 +384,8 @@ recorded in the audit trail with the filters that produced them.
 | `LABEL_JAANO_RL_VISION` | `30/60` | `/extract` and `/scan/image` — these cost a paid model call |
 | `LABEL_JAANO_RL_DEFAULT` | `600/60` | everything else |
 | `LABEL_JAANO_CORS_ORIGINS` | unset (`*`) | comma-separated browser allow-list. Set it for a real deployment; the open default is safe only because `allow_credentials` is off, so no cookie ever rides a cross-origin call. |
+| `LABEL_JAANO_LOG_LEVEL` | `INFO` | verbosity of the `labeljaano.*` loggers: `DEBUG` \| `INFO` \| `WARNING` \| `ERROR`. Every request logs a line (method, path, status, ms); a failed vision call logs the real reason at ERROR. Raise to `DEBUG` when hunting a bug. Unknown value keeps `INFO`. |
+| `LABEL_JAANO_LOG_FILE` | unset | if set, every log line is *also* appended to this file, so a run leaves a record after the terminal scrolls away. An unwritable path is warned about once and then ignored — a logging misconfiguration never takes the API down. |
 
 Session tokens last 12 hours — one inspection shift — and `POST /auth/refresh` slides
 an active one forward.

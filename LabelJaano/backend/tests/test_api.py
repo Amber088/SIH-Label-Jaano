@@ -33,8 +33,10 @@ rate-limit modules so that "what an officer is" is defined in exactly one place.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -64,9 +66,44 @@ _admin = apiclient.admin
 _file_scan = apiclient.scan
 
 
+@contextmanager
+def _capture_logs(name: str):
+    """Collect records emitted by logger *name* for the block (no pytest caplog, so the
+    self-contained runner captures the same lines)."""
+    logger = logging.getLogger(name)
+    records: list[logging.LogRecord] = []
+
+    class _Grab(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Grab()
+    prev_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.setLevel(prev_level)
+        logger.removeHandler(handler)
+
+
 # --------------------------------------------------------------------------- #
 # Meta
 # --------------------------------------------------------------------------- #
+def test_requests_are_logged():
+    """The access-log middleware emits one line per request: method, path, status, ms.
+
+    Guards the outermost middleware we added for observability — and, because it runs
+    through the full ASGI stack, that the layer did not break ordinary request handling.
+    """
+    with _capture_logs("labeljaano.request") as records:
+        r = client.get("/health")
+        assert r.status_code == 200, r.text
+    lines = [rec.getMessage() for rec in records]
+    assert any("GET" in m and "/health" in m and "200" in m for m in lines), lines
+
+
 def test_health_ok():
     r = client.get("/health")
     assert r.status_code == 200, r.text

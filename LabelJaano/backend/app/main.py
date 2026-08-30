@@ -76,6 +76,7 @@ from auth.roles import Permission  # noqa: E402
 from store.users import User  # noqa: E402
 
 from . import deps  # noqa: E402
+from . import logconfig  # noqa: E402
 from . import ratelimit  # noqa: E402
 from .routers import admin, auth_routes, history  # noqa: E402
 
@@ -87,6 +88,13 @@ from .schemas import (  # noqa: E402
 )
 
 __version__ = "0.2.0"
+
+# Configure the ``labeljaano`` logger tree once, at import, so every module below (and
+# the pipeline it calls) has a live handler whether the app is served or imported by a
+# test. Idempotent — see logconfig.setup_logging.
+logconfig.setup_logging()
+_scan_log = logconfig.get_logger("scan")
+_store_log = logconfig.get_logger("store")
 
 
 @asynccontextmanager
@@ -154,6 +162,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Outermost middleware (added last, so it wraps CORS and the limiter): one access line
+# per request — method, path, the status the client actually gets, and how long it took.
+app.add_middleware(logconfig.RequestLogMiddleware)
 
 app.include_router(auth_routes.router)
 app.include_router(history.router)
@@ -327,6 +339,9 @@ def scan(
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"could not build ruleset: {exc}")
     report = evaluate(scan_input, ruleset)
+    _scan_log.info("scan category=%s verdict=%s score=%.1f violations=%d",
+                   scan_input.category, report.verdict.value, report.score,
+                   len(report.violations))
     payload = report.to_dict()
     return _persist(
         payload, user=user, save=save, source="json", mock=False,
@@ -383,9 +398,9 @@ def _persist(
         out["scan_id"] = row.id
         out["saved"] = True
     except Exception as exc:  # noqa: BLE001 - never fail a good scan over history
-        # stderr so it lands in the log next to the other diagnostics rather than in
-        # whatever is parsing stdout.
-        print(f"[label-jaano] WARNING: could not record scan: {exc}", file=sys.stderr)
+        # A storage hiccup must not cost the caller their verdict, but it must not pass
+        # silently either — log it so a run of "saved: false" has a discoverable cause.
+        _store_log.warning("could not record scan: %s", exc)
     return out
 
 
@@ -498,6 +513,9 @@ async def scan_image(
     except RuntimeError as exc:  # missing optional dep / no API key
         raise HTTPException(status_code=503, detail=str(exc))
 
+    _scan_log.info("scan/image images=%d category=%s mock=%s verdict=%s score=%.1f",
+                   len(imgs), scan_input.get("category"), provenance["mock"],
+                   report.verdict.value, report.score)
     payload = report.to_dict()
     out = _persist(
         payload, user=user,

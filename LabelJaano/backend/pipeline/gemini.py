@@ -21,14 +21,20 @@ canned compliant-ish read — so the pipeline is testable with no key and no ins
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
 from .prompts import build_extraction_prompt
 from .types import GeminiExtraction, ImageInput
+
+#: The application (app.logconfig) owns the handlers; this layer only emits. Keeping it
+#: to a bare getLogger means the pipeline has no import dependency on the web app.
+_log = logging.getLogger("labeljaano.gemini")
 
 DEFAULT_MODEL = os.environ.get("LABEL_JAANO_GEMINI_MODEL", "gemini-3.6-flash")
 
@@ -151,7 +157,19 @@ def _gemini_extract(images: list[ImageInput], prompt: str, model: str) -> Gemini
     """
     key = _api_key()
     backend = _select_backend()
-    text = _call_with_deadline(backend, images, prompt, model, key)
+    _log.info("gemini call model=%s sdk=%s timeout=%gs images=%d",
+              model, backend.__name__, _timeout_seconds(), len(images))
+    started = time.perf_counter()
+    try:
+        text = _call_with_deadline(backend, images, prompt, model, key)
+    except Exception as exc:
+        # The reason the phone never got — the timeout message or the SDK's own
+        # "API key not valid" — lands in the server log at ERROR before it re-raises.
+        _log.error("gemini failed model=%s after %.1fs: %s",
+                   model, time.perf_counter() - started, exc)
+        raise
+    _log.info("gemini ok model=%s in %.1fs (%d chars)",
+              model, time.perf_counter() - started, len(text))
     data = _parse_json(text)
     data.setdefault("model", model)
     return GeminiExtraction.from_dict(data)

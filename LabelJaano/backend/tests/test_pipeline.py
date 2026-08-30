@@ -14,6 +14,7 @@ the font-height math is exercised against real geometry — not hand-waved numbe
 from __future__ import annotations
 
 import os
+import logging
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -248,6 +249,30 @@ def test_the_timeout_budget_survives_a_nonsense_env_value():
         assert gemini._timeout_seconds() == 12.5
 
 
+def test_a_failed_vision_call_is_logged():
+    """A scan that fails must leave a line in the log — the whole point of #1.
+
+    During the "server took too long" saga the server said nothing while the SDK
+    retried underneath, so we debugged blind with probe scripts. A failed vision call
+    now logs at ERROR with the model and the reason, so the terminal shows the cause.
+    """
+    from pipeline import gemini
+
+    def rejects_the_key(images, prompt, model, key):
+        raise ValueError("API key not valid. Pass a valid API key.")
+
+    with _stub_backend(rejects_the_key), _capture_logs("labeljaano.gemini") as records:
+        try:
+            gemini.extract_fields([b"\xff\xd8\xff0"], ["mrp"], [], ["other"], mock=False)
+        except ValueError:
+            pass  # the verbatim re-raise is asserted elsewhere; here we want the log
+
+    errors = [r for r in records if r.levelno >= logging.ERROR]
+    assert errors, "a failed vision call logged nothing at ERROR"
+    msg = errors[0].getMessage()
+    assert "gemini failed" in msg and "API key not valid" in msg, msg
+
+
 @contextmanager
 def _stub_backend(fn):
     """Swap in *fn* as the SDK backend, and a key so the real one is never needed."""
@@ -275,6 +300,31 @@ def _budget(value: str):
             os.environ.pop(gemini.TIMEOUT_ENV, None)
         else:
             os.environ[gemini.TIMEOUT_ENV] = was
+
+
+@contextmanager
+def _capture_logs(name: str):
+    """Collect records emitted by logger *name* (and its children) for the block.
+
+    A direct handler rather than pytest's ``caplog`` so the self-contained runner
+    (``python3 tests/test_pipeline.py``) captures the same lines with no pytest.
+    """
+    logger = logging.getLogger(name)
+    records: list[logging.LogRecord] = []
+
+    class _Grab(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Grab()
+    prev_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)  # don't let an INFO/ERROR line be filtered pre-grab
+    try:
+        yield records
+    finally:
+        logger.setLevel(prev_level)
+        logger.removeHandler(handler)
 
 
 # --------------------------------------------------------------------------- #
