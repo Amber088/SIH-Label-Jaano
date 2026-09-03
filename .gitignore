@@ -4,6 +4,10 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+# Per-machine assistant config (tool permissions for this checkout only). Ignored for
+# the same reason as .vscode/: it describes one developer's setup, not the project, and
+# it would otherwise be swept in by `git add -A`.
+.claude/
 
 # Logs & temp
 *.log

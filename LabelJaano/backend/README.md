@@ -26,7 +26,7 @@ backend/
 │   └── __init__.py   # public API
 ├── pipeline/            # photo -> scan-input: OCR + Gemini + calibration + fusion
 │   ├── ocr.py        # PaddleOCR word boxes (real) / deterministic mock
-│   ├── gemini.py     # Gemini 2.0 Flash structured field read (real) / mock
+│   ├── gemini.py     # Gemini structured field read (real) / mock
 │   ├── calibration.py# pixel->mm scale (card / ArUco / manual) for Rule 8
 │   ├── fusion.py     # merge the three signals into the scan-input contract
 │   ├── prompts.py    # rule-driven extraction prompt (never drifts from packs)
@@ -236,7 +236,7 @@ For **real** photo extraction, layer the heavy stack on top: build a second imag
 `.github/workflows/backend-ci.yml` runs the full suite on every push to `main` and
 every pull request that touches `LabelJaano/backend/**`, across Python 3.11 and 3.12.
 It installs `requirements-dev.txt` (core + `pytest`/`httpx`, no OCR stack) and runs
-`pytest -q`. No secrets are needed: with no `LABEL_JAANO_GEMINI_API_KEY` present the
+`pytest -q`. No secrets are needed: with no `GEMINI_API_KEY` present the
 image endpoints auto-select mock mode, and the pipeline tests mock explicitly — so the
 same green suite you get locally is the one CI gates on.
 
@@ -247,7 +247,7 @@ same green suite you get locally is the one CI gates on.
 an actual label **photo** into that JSON:
 
 1. **OCR** (PaddleOCR) — word-level pixel boxes, so Rule 8 letter heights are real.
-2. **Vision-LLM** (Gemini 2.0 Flash) — reads *what* each declaration says and *which*
+2. **Vision-LLM** (Gemini, default `gemini-3.6-flash`) — reads *what* each declaration says and *which*
    declaration it is. The prompt is built from the live rule packs, so the extractor
    can never drift from the rules.
 3. **Calibration** — a known-size reference in frame (ID/credit **card** = 85.6 mm, an
@@ -273,7 +273,7 @@ python3 extract.py samples/label_front.png samples/label_back.png --mock --evalu
     --reference '{"type":"manual","mm_per_px":0.0531,"pdp_bbox":[40,40,820,1220]}'
 #   -> ✅ COMPLIANT 100/100, net_quantity measured at 2.5 mm
 
-python3 tests/test_pipeline.py     # 15 mock tests, no deps
+python3 tests/test_pipeline.py     # 19 mock tests, no deps
 ```
 
 `extract.py` mirrors `run_scan.py`: add `--evaluate` to score, `--json` for machine

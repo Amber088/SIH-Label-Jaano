@@ -31,6 +31,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from envfile import load_env_file  # noqa: E402
+
+load_env_file()  # backend/.env, so a real read does not need a fresh export
+
 from pipeline import extract_scan_input, extract_and_evaluate  # noqa: E402
 from rule_engine.models import Verdict                          # noqa: E402
 from run_scan import render                                     # noqa: E402  (reuse renderer)

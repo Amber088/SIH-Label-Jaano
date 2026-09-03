@@ -110,7 +110,7 @@ flowchart TB
 
     subgraph External["External AI (pluggable)"]
         OCR["OCR Engine<br/>PaddleOCR / Google Vision"]
-        LLM["Vision-LLM<br/>Gemini 2.0 Flash"]
+        LLM["Vision-LLM<br/>Gemini 3.6 Flash"]
     end
 
     MA -->|HTTPS/JSON| API
@@ -172,7 +172,7 @@ You asked me to pick the strongest stack. Here it is, with the reasoning — thi
 | **Web dashboard** | **React + Vite + TypeScript**, **Tailwind CSS + shadcn/ui**, **Recharts**, **TanStack Query** | Fastest path to a clean, professional dashboard. shadcn/ui gives premium components for free; Recharts for compliance analytics. |
 | **Backend API** | **Python + FastAPI** | Async, auto-generated Swagger docs (great for the demo), Pydantic validation, and it lives in the same language as all the AI/ML libraries — zero glue code between API and AI. |
 | **OCR** | **PaddleOCR** (open-source, Hindi + English) with **Google Cloud Vision** as an accuracy booster | PaddleOCR returns **word-level bounding boxes** — essential for font-size measurement — and runs free/offline. Google Vision available as a high-accuracy fallback. |
-| **Vision-LLM** | **Google Gemini 2.0 Flash** | Fast, cheap, strong multimodal reasoning, generous free tier (ideal for a hackathon budget). Extracts *structured* declarations even from messy labels. Pluggable — GPT-4o / Claude as drop-in alternatives. |
+| **Vision-LLM** | **Google Gemini** (default `gemini-3.6-flash`) | Fast, cheap, strong multimodal reasoning, generous free tier (ideal for a hackathon budget). Extracts *structured* declarations even from messy labels. Pluggable — GPT-4o / Claude as drop-in alternatives. |
 | **Image processing** | **OpenCV + Pillow** | Deskew, contrast enhancement, perspective correction, reference-object detection for calibration. |
 | **Rule engine** | **Custom Python module + versioned JSON rule sets** (validated by JSON Schema) | The core IP. Declarative, auditable, admin-editable, versioned by rule-effective-date. |
 | **Database** | **PostgreSQL 15+** (SQLAlchemy 2.0 + Alembic) | Relational integrity for products/scans/violations, plus native full-text search (`tsvector`) for the repository. |

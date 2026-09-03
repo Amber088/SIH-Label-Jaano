@@ -1,0 +1,55 @@
+# Render blueprint for the Label Jaano API.
+#
+# Render reads this from the repository root: New > Blueprint > pick this repo, and it
+# provisions the service below instead of you filling in a dashboard form. Paths are
+# therefore written from the repo root, not from LabelJaano/.
+#
+# The one non-obvious line is dockerContext. backend/Dockerfile copies BOTH backend/
+# and its sibling rulepacks/ — the rule packs are data the engine loads at boot, not
+# code — so the build context has to be LabelJaano/, one level above the Dockerfile.
+# Point the context at backend/ and the image builds fine and then dies at startup
+# with "rulepacks not loadable".
+#
+# After the first deploy, set the two secrets in the dashboard (they are deliberately
+# not in this file) and check the logs for `extraction mode=LIVE`. If it says MOCK, the
+# key did not arrive and every verdict the service returns is canned.
+
+services:
+  - type: web
+    name: labeljaano-api
+    runtime: docker            # legacy schema calls this key `env: docker`
+    plan: free
+    region: singapore          # nearest free region to India; change if you prefer
+    dockerfilePath: ./LabelJaano/backend/Dockerfile
+    dockerContext: ./LabelJaano
+    healthCheckPath: /health   # cheap, and it fails loudly if the packs do not load
+    autoDeploy: true           # redeploy on push to the default branch
+
+    envVars:
+      # Set this in the dashboard (Environment > Add Environment Variable). sync:false
+      # means "prompt me, never store it in git". Without it the service still runs,
+      # but only in mock mode: identical canned verdicts for every photo.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # Signs the auth/session tokens. Render generates a strong value once and keeps
+      # it stable across deploys, which matters: an unset secret is regenerated on
+      # every restart, silently signing every account out.
+      - key: LABEL_JAANO_SECRET
+        generateValue: true
+
+      # Pinned because the code's default (gemini-3.6-flash) is not on every key, and
+      # a model the endpoint does not know presents as a 60s hang, not a clear error.
+      - key: LABEL_JAANO_GEMINI_MODEL
+        value: gemini-2.5-flash
+
+      # Shared code required before anyone can self-register as an officer. Leave it
+      # unset and self-enrolment as staff is simply impossible, which is the safe
+      # default for a public URL — set it only when you want colleagues to enrol.
+      - key: LABEL_JAANO_OFFICER_CODE
+        sync: false
+
+      # The image already points the SQLite history at /data. On the free plan that
+      # directory is container-local and NOT persistent: history and accounts are
+      # wiped by any redeploy or restart. Fine for a demo; add a paid disk mounted at
+      # /data if it ever needs to survive.

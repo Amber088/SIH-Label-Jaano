@@ -41,6 +41,7 @@ Interactive docs are then at  http://127.0.0.1:8000/docs
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -58,6 +59,14 @@ from fastapi.responses import JSONResponse
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
+
+# Apply backend/.env before anything reads the environment — auth.tokens captures
+# LABEL_JAANO_SECRET at import time, and pipeline.gemini reads its model name the
+# same way, so this has to happen above the imports below, not inside startup.
+from envfile import load_env_file  # noqa: E402
+import envfile  # noqa: E402  (module handle, for DEFAULT_ENV_PATH in the log line)
+
+_ENV_FILE_VARS = load_env_file()
 
 from rule_engine import (  # noqa: E402  (import after sys.path tweak)
     ScanInput,
@@ -107,7 +116,37 @@ async def _lifespan(_app: FastAPI):
     slated for removal, and it warns on every import.
     """
     deps.init_persistence()
+    _log_extraction_mode()
     yield
+
+
+def _log_extraction_mode() -> None:
+    """Say once, at startup, where label values are going to come from.
+
+    The silent fallback to canned values is this service's most dangerous state:
+    the API keeps answering, every check passes, and nothing in the response
+    shouts about it. One line in the log at boot is the cheapest possible guard —
+    if the operator sees ``mode=MOCK`` they know the verdicts mean nothing.
+    Variable *names* only; a value is never logged.
+    """
+    logger = logging.getLogger("labeljaano.startup")
+    if _ENV_FILE_VARS:
+        logger.info(
+            "loaded %d var(s) from %s: %s",
+            len(_ENV_FILE_VARS),
+            envfile.DEFAULT_ENV_PATH,
+            ", ".join(_ENV_FILE_VARS),
+        )
+    mode = resolve_mock_mode()
+    if mode["mock"]:
+        logger.warning(
+            "extraction mode=MOCK — /extract and /scan/image return CANNED label "
+            "values, not an optical read (%s). Set GEMINI_API_KEY in the shell or "
+            "in backend/.env for a real read.",
+            mode["reason"],
+        )
+    else:
+        logger.info("extraction mode=LIVE — %s", mode["reason"])
 
 
 app = FastAPI(

@@ -56,6 +56,13 @@ _BACKEND_DIR = Path(__file__).resolve().parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
+# Before ``import auth`` — auth.tokens reads LABEL_JAANO_SECRET at import time, so a
+# secret that lives in backend/.env has to be in the environment by now or the CLI
+# would mint tokens under an ephemeral key that the running server does not share.
+from envfile import load_env_file  # noqa: E402
+
+load_env_file()
+
 import auth  # noqa: E402
 import store  # noqa: E402
 from auth.roles import Role  # noqa: E402

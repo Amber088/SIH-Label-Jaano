@@ -1,18 +1,51 @@
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
-/// Where the FastAPI backend lives, resolved per-platform so the app "just works"
-/// out of the box:
+/// The backend address baked in at build time, via
+/// `flutter build apk --release --dart-define=LJ_BASE_URL=https://example.com`.
 ///
-///   * Android  -> the Mac's LAN IP (this build is demoed on a physical phone
-///                 over Wi-Fi; an emulator would instead use 10.0.2.2). Change
-///                 this if the Mac's IP changes, or override it in Settings.
+/// This exists because [Settings] holds the base URL **in memory only** — it resets
+/// to [defaultBaseUrl] on every cold start. That is harmless on the dev machine,
+/// where the fallback below is already right, but it makes a hand-shared APK
+/// unusable: the recipient would have to retype an address every single launch. So
+/// a build destined for someone else's phone carries its server with it.
+///
+/// Empty (the default) means "not configured", and the per-platform fallbacks apply.
+const String _configuredBaseUrl =
+    String.fromEnvironment('LJ_BASE_URL', defaultValue: '');
+
+/// The dev Mac's address on the Wi-Fi. Only used when no `LJ_BASE_URL` was given.
+/// It changes whenever the network does, which is why `run.sh` prints today's value
+/// and Settings can override it at runtime.
+const String _lanFallbackUrl = 'http://192.168.1.104:8000';
+
+/// Whether the app should ask the backend for its *offline mock* pipeline.
+///
+/// Defaults to true, unchanged, so nothing about the local workflow moves. Pass
+/// `--dart-define=LJ_SERVER_MOCK=false` when building a share-ready APK pointed at a
+/// backend that has a Gemini key: mock mode returns the same canned compliant label
+/// for any photo, and since this setting is not persisted either, a recipient would
+/// silently get canned verdicts on every launch unless they knew to flip the toggle.
+const bool defaultServerMock =
+    bool.fromEnvironment('LJ_SERVER_MOCK', defaultValue: true);
+
+/// Where the FastAPI backend lives.
+///
+///   * A build-time `LJ_BASE_URL` wins outright — that is the shareable-APK case.
+///   * Android  -> [_lanFallbackUrl], the Mac's LAN IP (this build is demoed on a
+///                 physical phone over Wi-Fi; an emulator would use 10.0.2.2).
 ///   * iOS simulator/web -> localhost (shares the host network)
+///
+/// Plain `http://` to a LAN IP is fine despite Android's cleartext policy: Flutter's
+/// `dart:io` sockets are not subject to `NetworkSecurityPolicy`, which only governs
+/// the Java-level HTTP stack. No manifest flag is needed either way, and a hosted
+/// backend will be `https://` regardless.
 String defaultBaseUrl() {
+  if (_configuredBaseUrl.isNotEmpty) return _configuredBaseUrl;
   if (kIsWeb) return 'http://localhost:8000';
   switch (defaultTargetPlatform) {
     case TargetPlatform.android:
-      return 'http://192.168.1.104:8000';
+      return _lanFallbackUrl;
     default:
       return 'http://localhost:8000';
   }

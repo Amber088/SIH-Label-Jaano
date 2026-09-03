@@ -16,11 +16,17 @@ class Settings extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Ask the backend to use its offline mock OCR/Gemini pipeline. Default ON so
-  /// the app produces real verdicts against a live server even before the heavy
-  /// extraction deps (paddleocr, google-generativeai) or an API key are set up.
-  /// Turn OFF for a genuine on-device-photo -> live-model scan.
-  bool _serverMock = true;
+  /// Ask the backend to use its offline mock OCR/Gemini pipeline. Defaults to
+  /// [defaultServerMock] — ON unless the build passed
+  /// `--dart-define=LJ_SERVER_MOCK=false` — so the app produces real verdicts
+  /// against a live server even before the heavy extraction deps (paddleocr,
+  /// google-genai) or an API key are set up. Turn OFF for a genuine
+  /// on-device-photo -> live-model scan.
+  ///
+  /// Note this is not persisted: it returns to the compiled default on every cold
+  /// start, so a build meant for someone else's phone should set that default
+  /// rather than rely on the recipient flipping the toggle.
+  bool _serverMock = defaultServerMock;
   bool get serverMock => _serverMock;
   set serverMock(bool v) {
     if (v == _serverMock) return;
